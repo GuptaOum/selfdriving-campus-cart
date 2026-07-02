@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# DonkeyCar upstream copy (install via pip instead)
+donkeycar-main/
+
+# Training artifacts
+mycar/models/
+mycar/logs/
+
+# Local tool settings
+.claude/
+
+# Misc
+*.mp4
+*.h5
