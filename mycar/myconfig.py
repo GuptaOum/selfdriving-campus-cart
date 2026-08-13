@@ -810,12 +810,18 @@ ULTRASONIC_PINS = {"left": (5, 6), "center": (19, 26), "right": (20, 21)}  # (tr
 SONAR_STOP_CM = 30.0            # any sensor closer -> hard throttle cut
 SONAR_CAUTION_CM = 80.0         # center closer -> creep + steer to open side
 
-# -- GPS navigation + geofence (NEO-6M on USB-TTL via gpsd) -------------------
-# NEO-6M is GPS-only and 1 Hz by default: expect ~3-7 m error, not the 2.5 m of
-# a multi-constellation module. Junction/arrive radii in gps_nav.py are sized
-# for that. Draw the geofence with WIDE margins or it will false-trigger.
-# Cold start can take 30 s to several minutes, and it will never fix indoors.
+# -- GPS navigation + geofence (u-blox on USB-TTL via gpsd) -------------------
+# Size the radii to your module's real error, measured on your campus — a
+# junction radius smaller than your position error fires the turn command in
+# the wrong place, or never.
+#   NEO-6M   GPS only, 1 Hz   ~3-7 m   -> junction 12, arrive 8
+#   NEO-M8N  multi-GNSS, 10 Hz  ~2-3 m -> junction 8,  arrive 5
+# Neither affects steering, which is vision-only. Draw the geofence with WIDE
+# margins regardless. No module fixes indoors; cold start takes 30 s or more.
 HAVE_GPS_NAV = False
+GPS_JUNCTION_RADIUS_M = 12.0    # distance to a waypoint that triggers L/R/straight
+GPS_ARRIVE_RADIUS_M = 8.0       # distance that counts as "waypoint reached"
+GPS_FIX_STALE_SECS = 4.0        # older fix than this -> nav/safe False (fail closed)
 CAMPUS_GRAPHML = "campus_graph.graphml"   # from scripts/build_campus_graph.py
 GEOFENCE = None                 # [(lat, lon), ...] polygon; fail-closed when set
 MISSION_REQUIRES_GPS = False    # True for outdoor A->B missions: no fix = stop.
