@@ -601,6 +601,17 @@ PIGPIO_SHOW_STEERING_VALUE = False
 PIGPIO_INVERT = False
 PIGPIO_JITTER = 0.025   # threshold below which no signal is reported
 
+#FLYSKY IBUS RC control (CONTROLLER_TYPE = "ibus", see mycar/ibus_receiver.py)
+# FlySky receiver's iBUS pin wired to the Pi's UART RX (GPIO15 / physical pin 10).
+# Requires UART enabled and Bluetooth disabled on that UART in /boot/config.txt.
+IBUS_SERIAL_PORT = '/dev/serial0'  # iBUS is receive-only; this is the Pi's UART device
+IBUS_BAUDRATE = 115200
+IBUS_STEERING_CHANNEL = 0          # CH1 index (0-based)
+IBUS_THROTTLE_CHANNEL = 1          # CH2 index (0-based)
+IBUS_MODE_CHANNEL = 4              # CH5 index (0-based) - 3-position switch for user/local_angle/local
+IBUS_MODE_USER_MAX = 1300          # raw channel value below this => 'user' (manual)
+IBUS_MODE_LOCAL_ANGLE_MAX = 1700   # raw channel value below this => 'local_angle', else 'local' (full autopilot)
+
 
 
 #ROBOHAT MM1
