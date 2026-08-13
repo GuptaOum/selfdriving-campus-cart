@@ -46,6 +46,8 @@ def detect_breaker(frame_bgr, roi_top=0.5, min_yellow_frac=0.04,
     row_sums = yellow.sum(axis=1)
     peak_row = int(np.argmax(row_sums))
     band = yellow[max(0, peak_row - 4):peak_row + 5, :]  # ~9 px tall band
+    if band.size == 0 or band.shape[1] < 8:
+        return False, 0.0
     profile = (band.mean(axis=0) > 127).astype(np.int8)
 
     # count yellow<->not-yellow alternations, ignoring tiny noise runs
@@ -69,26 +71,41 @@ def detect_breaker(frame_bgr, roi_top=0.5, min_yellow_frac=0.04,
 
 class BreakerDetect:
     """
-    Non-threaded DonkeyCar part (cheap: ~1-2 ms). Latches BREAKER mode from
-    first sight until [crossing_secs] after the breaker reaches the bumper.
+    Non-threaded DonkeyCar part (cheap: ~1-2 ms).
 
     Inputs:  cam/image_array (RGB)
     Outputs: breaker/active (bool — cart should be in creep-and-straight mode)
+
+    Two distance thresholds, because a breaker visible far down the path is not
+    a reason to creep the whole way to it:
+
+      band_y >= approach_y_frac -> creep now, we are nearly on it
+      band_y >= near_y_frac     -> it is at the bumper; latch creep for
+                                   crossing_secs so we keep going while the
+                                   wheels are on it and the camera can no
+                                   longer see the stripes.
     """
 
-    def __init__(self, near_y_frac=0.85, crossing_secs=3.0, roi_top=0.5):
+    def __init__(self, approach_y_frac=0.62, near_y_frac=0.85,
+                 crossing_secs=3.0, roi_top=0.5):
+        self.approach_y_frac = approach_y_frac
         self.near_y_frac = near_y_frac
         self.crossing_secs = crossing_secs
         self.roi_top = roi_top
         self.crossing_until = 0.0
 
     def run(self, image):
+        now = time.monotonic()
         if image is None:
-            return time.monotonic() < self.crossing_until
+            return now < self.crossing_until
+
         detected, band_y = detect_breaker(
             cv2.cvtColor(image, cv2.COLOR_RGB2BGR), roi_top=self.roi_top)
-        now = time.monotonic()
+
         if detected and band_y >= self.near_y_frac:
-            # breaker at the bumper: keep creeping until wheels are across
+            # at the bumper: the stripes leave the frame before the wheels are
+            # across, so latch rather than relying on continued detection
             self.crossing_until = now + self.crossing_secs
-        return detected or now < self.crossing_until
+
+        approaching = detected and band_y >= self.approach_y_frac
+        return approaching or now < self.crossing_until

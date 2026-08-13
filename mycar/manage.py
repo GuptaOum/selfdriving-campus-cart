@@ -954,20 +954,30 @@ def add_imu(V, cfg):
 #
 def add_campus_autonomy(V, cfg):
     # seed defaults so the arbiter runs even with some layers disabled
+    # Seed defaults so the arbiter runs even with some layers disabled.
+    # Health flags default True for absent layers — a layer that was never
+    # enabled must not be reported as a broken one.
     keys = ['seg/angle', 'seg/throttle', 'seg/corridor_clear',
-            'sonar/stop', 'sonar/bias', 'yolo/stop', 'yolo/slow',
+            'sonar/stop', 'sonar/bias', 'sonar/healthy',
+            'yolo/stop', 'yolo/slow', 'yolo/healthy',
             'breaker/active', 'nav/safe', 'nav/arrived', 'nav/command',
             'gps/lat', 'gps/lon']
-    V.mem.put(keys, [0.0, 0.0, False, False, 0.0, False, False,
+    V.mem.put(keys, [0.0, 0.0, False,
+                     False, 0.0, True,
+                     False, False, True,
                      False, False, False, None, 0.0, 0.0])
 
-    if getattr(cfg, 'HAVE_ULTRASONIC', False):
+    have_sonar = getattr(cfg, 'HAVE_ULTRASONIC', False)
+    have_yolo = getattr(cfg, 'HAVE_YOLO_GUARD', False)
+
+    if have_sonar:
         from parts.ultrasonic import UltrasonicArray
         sonar = UltrasonicArray(pins=cfg.ULTRASONIC_PINS,
                                 stop_cm=cfg.SONAR_STOP_CM,
                                 caution_cm=cfg.SONAR_CAUTION_CM)
         V.add(sonar, outputs=['sonar/left', 'sonar/center', 'sonar/right',
-                              'sonar/stop', 'sonar/bias'], threaded=True)
+                              'sonar/stop', 'sonar/bias', 'sonar/healthy'],
+              threaded=True)
 
     if getattr(cfg, 'HAVE_GPS_NAV', False):
         from parts.gps_nav import GpsNav
@@ -981,16 +991,19 @@ def add_campus_autonomy(V, cfg):
         V.add(BreakerDetect(), inputs=['cam/image_array'],
               outputs=['breaker/active'])
 
-    if getattr(cfg, 'HAVE_YOLO_GUARD', False):
+    if have_yolo:
         from parts.yolo_guard import YoloGuard
         guard = YoloGuard(model_path=cfg.YOLO_MODEL_PATH,
                           imgsz=getattr(cfg, 'YOLO_IMGSZ', 320))
         V.add(guard, inputs=['cam/image_array'],
-              outputs=['yolo/stop', 'yolo/slow', 'yolo/fps'], threaded=True)
+              outputs=['yolo/stop', 'yolo/slow', 'yolo/healthy', 'yolo/fps'],
+              threaded=True)
 
     from parts.seg_pilot import SegPilot
     pilot = SegPilot(onnx_path=cfg.SEG_MODEL_PATH,
                      labels_path=cfg.SEG_LABELS_PATH,
+                     max_result_age=getattr(cfg, 'SEG_MAX_RESULT_AGE', 1.5),
+                     max_frame_age=getattr(cfg, 'SEG_MAX_FRAME_AGE', 1.0),
                      kp=getattr(cfg, 'SEG_KP', 1.2),
                      kd=getattr(cfg, 'SEG_KD', 0.3),
                      corridor_frac_bottom=getattr(cfg, 'SEG_CORRIDOR_FRAC', 0.28),
@@ -1003,10 +1016,13 @@ def add_campus_autonomy(V, cfg):
     from parts.safety_arbiter import SafetyArbiter
     arbiter = SafetyArbiter(
         creep_throttle=getattr(cfg, 'ARBITER_CREEP_THROTTLE', 0.14),
-        mission_requires_gps=getattr(cfg, 'MISSION_REQUIRES_GPS', False))
+        mission_requires_gps=getattr(cfg, 'MISSION_REQUIRES_GPS', False),
+        require_sonar=have_sonar,   # only demand health from layers that exist
+        require_yolo=have_yolo)
     V.add(arbiter,
           inputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear',
-                  'sonar/stop', 'sonar/bias', 'yolo/stop', 'yolo/slow',
+                  'sonar/stop', 'sonar/bias', 'sonar/healthy',
+                  'yolo/stop', 'yolo/slow', 'yolo/healthy',
                   'breaker/active', 'nav/safe', 'nav/arrived'],
           outputs=['pilot/angle', 'pilot/throttle'])
 

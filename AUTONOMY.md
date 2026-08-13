@@ -26,6 +26,36 @@ GPS supplies map position + junction commands (never steering).
    SegPilot ──── seg/angle,throttle ────┘             6 drive (seg + sonar bias)
 ```
 
+## Everything fails closed
+
+The dangerous failure for an unattended vehicle is not a crash — a crashed part
+is obvious. It is a part that **keeps returning its last good value** after it
+has stopped working, so the cart drives confidently on stale information. Each
+layer therefore detects its own silence and reports the unsafe answer:
+
+| Failure | Detected by | Result |
+|---|---|---|
+| Camera freezes (same frame repeats) | `SegPilot` frame-identity + age check | corridor blocked → stop |
+| Segmentation thread stalls or dies | `SegPilot` result age > `SEG_MAX_RESULT_AGE` | corridor blocked → stop |
+| Detector throws repeatedly | `YoloGuard` consecutive-failure count | reports "person ahead" → stop |
+| Detector thread stalls | `YoloGuard` result age | reports "person ahead" → stop |
+| HC-SR04 unplugged / wire off | no rising edge on ECHO at all | `sonar/healthy` False → stop |
+| GPS lost, stale, or outside fence | fix age + polygon test | `nav/safe` False → stop |
+| Any part raises | caught, backs off 200 ms, holds the stop | stop |
+
+The sonar case is the subtle one. A **working** HC-SR04 with clear air ahead
+still raises ECHO — it emits a ~38 ms "nothing there" pulse. A **disconnected**
+one never raises ECHO at all. Reading silence as "path clear" would let the cart
+drive with no proximity sensing whatsoever, so `read_cm()` separates the two and
+the array refuses to report clear when a sensor has gone quiet.
+
+Health flags are only enforced for layers you actually enabled — `require_sonar`
+and `require_yolo` are wired from `HAVE_ULTRASONIC` / `HAVE_YOLO_GUARD`, so a
+layer you never installed is not reported as a broken one.
+
+Run `python tests/test_safety.py` after touching any of this. It needs no
+hardware, no models and no Pi, and it asserts each row of the table above.
+
 ## Files
 
 | File | What it is |
@@ -39,6 +69,7 @@ GPS supplies map position + junction commands (never steering).
 | `scripts/export_models.py` | laptop/Colab: download + ONNX/INT8/NCNN export |
 | `scripts/build_campus_graph.py` | laptop: OSM campus graph → graphml |
 | `scripts/vision_bench.py` | Phase 1 go/no-go on recorded footage |
+| `tests/test_safety.py` | Steering geometry + fail-closed tests (no hardware) |
 
 ## Setup — laptop (once)
 

@@ -80,8 +80,8 @@ class GpsNav:
             self.graph = nx.read_graphml(graphml_path)
             logger.info("Loaded campus graph: %d nodes", self.graph.number_of_nodes())
 
-        self.lat = self.lon = None
-        self.fix_time = 0.0
+        # (lat, lon, monotonic_time) written as one tuple by the poll thread
+        self._fix = None
         self.route = []            # [(lat, lon), ...] waypoints, set by set_destination
         self.route_index = 0
         self.arrived = False
@@ -100,11 +100,12 @@ class GpsNav:
 
     def set_destination(self, dest_lat, dest_lon):
         """Compute a route from current position. Called by the app layer."""
-        if self.graph is None or self.lat is None:
+        fix = self._fix
+        if self.graph is None or fix is None:
             logger.warning("cannot route: no graph or no fix")
             return False
         import networkx as nx
-        src = self._nearest_node(self.lat, self.lon)
+        src = self._nearest_node(fix[0], fix[1])
         dst = self._nearest_node(dest_lat, dest_lon)
         try:
             path = nx.shortest_path(self.graph, src, dst, weight="length")
@@ -118,15 +119,15 @@ class GpsNav:
         logger.info("route set: %d waypoints", len(self.route))
         return True
 
-    def _junction_command(self):
+    def _junction_command(self, lat, lon):
         """LEFT/STRAIGHT/RIGHT when close to the next waypoint, else None."""
         with self._lock:
             route, i = list(self.route), self.route_index
-        if not route or self.lat is None:
+        if not route:
             return None
 
         # advance past waypoints we've reached
-        while i < len(route) and haversine_m(self.lat, self.lon, *route[i]) < self.arrive_radius_m:
+        while i < len(route) and haversine_m(lat, lon, *route[i]) < self.arrive_radius_m:
             i += 1
         with self._lock:
             self.route_index = i
@@ -134,12 +135,12 @@ class GpsNav:
             self.arrived = True
             return None
 
-        dist_next = haversine_m(self.lat, self.lon, *route[i])
+        dist_next = haversine_m(lat, lon, *route[i])
         if dist_next > self.junction_radius_m or i + 1 >= len(route):
             return None
 
         # approaching a junction: compare inbound vs outbound bearing
-        inbound = bearing_deg(self.lat, self.lon, *route[i])
+        inbound = bearing_deg(lat, lon, *route[i])
         outbound = bearing_deg(*route[i], *route[i + 1])
         turn = (outbound - inbound + 540.0) % 360.0 - 180.0  # [-180, 180]
         if turn <= -self.turn_threshold_deg:
@@ -162,33 +163,48 @@ class GpsNav:
         import json
         import socket
         s = socket.create_connection(("127.0.0.1", 2947), timeout=5)
-        f = s.makefile("rw")
-        f.write('?WATCH={"enable":true,"json":true}\n')
-        f.flush()
-        for line in f:
-            if not self.running:
-                break
-            try:
-                msg = json.loads(line)
-            except ValueError:
-                continue
-            if msg.get("class") == "TPV" and msg.get("mode", 0) >= 2:
-                self.lat, self.lon = msg.get("lat"), msg.get("lon")
-                self.fix_time = time.monotonic()
-        s.close()
+        # so readline wakes up periodically and shutdown() is actually honoured
+        # instead of the thread blocking forever on a silent socket
+        s.settimeout(2.0)
+        try:
+            f = s.makefile("rw")
+            f.write('?WATCH={"enable":true,"json":true}\n')
+            f.flush()
+            while self.running:
+                try:
+                    line = f.readline()
+                except socket.timeout:
+                    continue  # no data this window; fix_time ages, safe goes False
+                if not line:
+                    logger.warning("gpsd closed the connection")
+                    break
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if msg.get("class") == "TPV" and msg.get("mode", 0) >= 2:
+                    lat, lon = msg.get("lat"), msg.get("lon")
+                    if lat is None or lon is None:
+                        continue
+                    # single atomic store: a reader can never see a new lat
+                    # paired with a stale lon
+                    self._fix = (lat, lon, time.monotonic())
+        finally:
+            s.close()
 
     # ---------- part interface ----------
 
     def run_threaded(self):
-        fresh = (time.monotonic() - self.fix_time) < self.fix_stale_secs \
-            and self.lat is not None
+        fix = self._fix  # single read; the poll thread may replace it at any time
+        if fix is None:
+            return 0.0, 0.0, None, False, self.arrived
+
+        lat, lon, fix_time = fix
+        fresh = (time.monotonic() - fix_time) < self.fix_stale_secs
         safe = fresh  # no/stale fix -> unsafe, fail closed
         if safe and self.geofence:
-            safe = point_in_polygon(self.lat, self.lon, self.geofence)
-        command = self._junction_command() if fresh else None
-        # 0.0 placeholders keep tub logging json-safe; nav/safe flags validity
-        lat = self.lat if self.lat is not None else 0.0
-        lon = self.lon if self.lon is not None else 0.0
+            safe = point_in_polygon(lat, lon, self.geofence)
+        command = self._junction_command(lat, lon) if fresh else None
         return lat, lon, command, safe, self.arrived
 
     def shutdown(self):

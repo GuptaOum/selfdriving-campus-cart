@@ -5,6 +5,10 @@ YOLOv8n exported to NCNN (see scripts/export_models.py). It does NOT steer;
 it only classifies "person (or large obstacle) in my corridor" into
 slow / stop signals for the SafetyArbiter. HC-SR04 remains the last line —
 this just reacts sooner and at range.
+
+FAIL-CLOSED: a detector that is erroring or has gone stale reports "stop",
+never "all clear". Silence from a pedestrian detector is not evidence of
+no pedestrian.
 """
 import logging
 import time
@@ -12,8 +16,8 @@ import time
 logger = logging.getLogger(__name__)
 
 # COCO classes that should stop a 1/8-scale cart when in the corridor
-STOP_CLASSES = {0: "person", 1: "bicycle", 3: "motorcycle", 15: "cat",
-                16: "dog", 2: "car"}
+STOP_CLASSES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
+                15: "cat", 16: "dog"}
 
 
 class YoloGuard:
@@ -21,7 +25,7 @@ class YoloGuard:
     Threaded DonkeyCar part.
 
     Inputs:  cam/image_array (RGB)
-    Outputs: yolo/stop (bool), yolo/slow (bool), yolo/fps
+    Outputs: yolo/stop (bool), yolo/slow (bool), yolo/healthy (bool), yolo/fps
 
     Corridor test: bottom-center point of a detection must fall inside a
     trapezoid spanning [corridor_bottom_frac] of the width at the bottom of the
@@ -31,7 +35,14 @@ class YoloGuard:
 
     def __init__(self, model_path, imgsz=320, conf=0.4,
                  corridor_bottom_frac=0.75, horizon_frac=0.45,
-                 stop_height_frac=0.45, slow_height_frac=0.22):
+                 stop_height_frac=0.45, slow_height_frac=0.22,
+                 max_result_age=2.5, max_failures=3):
+        """
+        :param max_result_age: seconds a detection result stays valid before the
+               guard reports stop. Set above your measured inference period.
+        :param max_failures: consecutive inference errors before declaring the
+               guard unhealthy and forcing a stop.
+        """
         from ultralytics import YOLO  # NCNN backend loads via ultralytics
         self.model = YOLO(str(model_path), task="detect")
         self.imgsz = imgsz
@@ -40,12 +51,18 @@ class YoloGuard:
         self.horizon_frac = horizon_frac
         self.stop_height_frac = stop_height_frac
         self.slow_height_frac = slow_height_frac
+        self.max_result_age = max_result_age
+        self.max_failures = max_failures
 
         self.image = None
-        self.stop = False
-        self.slow = False
+        self._stop = False
+        self._slow = False
         self.fps = 0.0
         self.running = True
+
+        self._failures = 0
+        self._result_time = 0.0
+        self._last_stale_log = 0.0
         logger.info("YoloGuard ready (%s @ %dpx)", model_path, imgsz)
 
     def _in_corridor(self, cx_frac, y_frac):
@@ -79,15 +96,32 @@ class YoloGuard:
                         stop = True
                     elif height_frac >= self.slow_height_frac:
                         slow = True
+                self._stop, self._slow = stop, slow
+                self._failures = 0
+                self._result_time = time.monotonic()
             except Exception:
-                logger.exception("detection failed (fail-safe: no stop signal, "
-                                 "sonar still covers)")
-            self.stop, self.slow = stop, slow
+                self._failures += 1
+                logger.exception("detection failed (%d consecutive)", self._failures)
+                time.sleep(0.2)  # back off rather than spin hot on a hard fault
             self.fps = 1.0 / max(time.monotonic() - t0, 1e-3)
 
     def run_threaded(self, image):
         self.image = image
-        return self.stop, self.slow, self.fps
+        now = time.monotonic()
+
+        unhealthy = None
+        if self._failures >= self.max_failures:
+            unhealthy = f"{self._failures} consecutive inference failures"
+        elif now - self._result_time > self.max_result_age:
+            unhealthy = f"no detection for {now - self._result_time:.1f}s"
+
+        if unhealthy:
+            if now - self._last_stale_log > 5.0:
+                logger.error("YoloGuard unhealthy (%s) — forcing stop", unhealthy)
+                self._last_stale_log = now
+            return True, False, False, self.fps
+
+        return self._stop, self._slow, True, self.fps
 
     def shutdown(self):
         self.running = False

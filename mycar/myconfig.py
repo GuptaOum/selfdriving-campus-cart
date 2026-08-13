@@ -781,6 +781,15 @@ SEG_CORRIDOR_FRAC = 0.28        # min drivable width at bottom band, frac of ima
 SEG_THROTTLE_CRUISE = 0.30      # throttle when corridor clear to the horizon
 SEG_THROTTLE_CREEP = 0.16       # throttle when corridor short / crossing breaker
 
+# Watchdogs. The vehicle loop runs ~20x faster than segmentation, so it reuses
+# each result many times — fine for one inference period, dangerous past it.
+# Exceeding either age reports "blocked" and the arbiter stops the cart.
+# Set SEG_MAX_RESULT_AGE to about 3x your measured inference period: read the
+# seg/fps output, or the FPS line printed by scripts/vision_bench.py.
+SEG_MAX_RESULT_AGE = 1.5        # seconds a steering result stays valid
+SEG_MAX_FRAME_AGE = 1.0         # seconds without a NEW camera frame before stopping
+                                # (catches a frozen camera handing back one image)
+
 # -- YOLO person/obstacle guard (COCO-pretrained, NCNN; export_models.py) -----
 HAVE_YOLO_GUARD = False
 YOLO_MODEL_PATH = "models/exported_models/yolov8n_ncnn_model"

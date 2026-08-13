@@ -167,18 +167,44 @@ class SegPilot:
 
     Inputs:  cam/image_array (RGB, per DonkeyCar convention), nav/command
     Outputs: seg/angle, seg/throttle, seg/corridor_clear, seg/fps
+
+    FAIL-CLOSED. The vehicle loop runs ~20x faster than inference, so it reuses
+    each result many times — which is fine for one inference period and
+    dangerous beyond it. Two watchdogs invalidate the result (corridor_clear
+    goes False, which the arbiter turns into a stop):
+
+      * result_age  — inference thread stalled, died, or slowed to a crawl
+      * frame_age   — the camera stopped producing NEW frames. A frozen camera
+                      part keeps handing back the same array, and without this
+                      check the car would confidently drive on a photograph.
     """
 
-    def __init__(self, onnx_path, labels_path, **engine_kwargs):
+    def __init__(self, onnx_path, labels_path,
+                 max_result_age=1.5, max_frame_age=1.0, **engine_kwargs):
+        """
+        :param max_result_age: seconds a steering result stays valid. Must exceed
+               your measured inference time or the car stops constantly — check
+               the seg/fps output and set this to ~3x the period.
+        :param max_frame_age: seconds without a new camera frame before stopping.
+        """
         self.engine = SegEngine(onnx_path, labels_path, **engine_kwargs)
+        self.max_result_age = max_result_age
+        self.max_frame_age = max_frame_age
+
         self.image = None
         self.nav_command = None
         self.angle = 0.0
         self.throttle = 0.0
-        self.corridor_clear = False
+        self._corridor_clear = False
         self.fps = 0.0
         self.running = True
-        logger.info("SegPilot ready (input %dpx)", self.engine.input_size)
+
+        self._last_image = None
+        self._frame_time = 0.0
+        self._result_time = 0.0
+        self._last_stale_log = 0.0
+        logger.info("SegPilot ready (input %dpx, result TTL %.1fs)",
+                    self.engine.input_size, max_result_age)
 
     def update(self):
         while self.running:
@@ -190,17 +216,38 @@ class SegPilot:
             try:
                 # DonkeyCar images are RGB; engine expects BGR
                 mask = self.engine.infer_mask(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-                self.angle, self.throttle, self.corridor_clear, _ = \
+                self.angle, self.throttle, self._corridor_clear, _ = \
                     self.engine.steer_from_mask(mask, self.nav_command)
+                self._result_time = time.monotonic()
             except Exception:
                 logger.exception("segmentation failed; treating as blocked")
-                self.angle, self.throttle, self.corridor_clear = 0.0, 0.0, False
+                self.angle, self.throttle, self._corridor_clear = 0.0, 0.0, False
+                time.sleep(0.2)  # back off rather than spin hot on a hard fault
             self.fps = 1.0 / max(time.monotonic() - t0, 1e-3)
 
+    def _stale_reason(self, now):
+        if now - self._result_time > self.max_result_age:
+            return f"no inference for {now - self._result_time:.1f}s"
+        if now - self._frame_time > self.max_frame_age:
+            return f"no new camera frame for {now - self._frame_time:.1f}s"
+        return None
+
     def run_threaded(self, image, nav_command=None):
+        now = time.monotonic()
+        # a frozen camera part returns the identical array object every tick
+        if image is not None and image is not self._last_image:
+            self._last_image = image
+            self._frame_time = now
         self.image = image
         self.nav_command = nav_command
-        return self.angle, self.throttle, self.corridor_clear, self.fps
+
+        reason = self._stale_reason(now)
+        if reason:
+            if now - self._last_stale_log > 2.0:
+                logger.error("SegPilot output stale (%s) — reporting blocked", reason)
+                self._last_stale_log = now
+            return 0.0, 0.0, False, self.fps
+        return self.angle, self.throttle, self._corridor_clear, self.fps
 
     def shutdown(self):
         self.running = False
