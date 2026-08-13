@@ -1,0 +1,35 @@
+# Raspberry Pi runtime dependencies for the Phase 2 campus autonomy stack.
+#
+#   pip install -r requirements-pi.txt
+#
+# DonkeyCar itself is installed separately, per the README:
+#   pip install donkeycar[pi]
+#
+# Phase 1 (behavioral cloning on tracks) needs NONE of this — stock DonkeyCar
+# is enough. Only install these when you set USE_CAMPUS_AUTONOMY = True.
+
+# --- always needed for Phase 2 ---
+onnxruntime            # runs the INT8 SegFormer ONNX model
+numpy
+opencv-python-headless # headless build: no GUI/Qt deps, meaningfully smaller
+                       # than opencv-python, which matters on a 2 GB Pi
+pigpio                 # microsecond HC-SR04 edge timing (needs pigpiod running)
+pyserial               # FlySky iBUS receiver
+
+# --- only if HAVE_GPS_NAV = True ---
+networkx               # reads the campus graphml and runs shortest-path.
+                       # osmnx is NOT needed here — the graph is built on your
+                       # laptop and copied over as a file.
+
+# --- only if HAVE_YOLO_GUARD = True ---
+#
+# WARNING on 2 GB: `ultralytics` pulls in torch and imports it at load time,
+# costing several hundred MB of RSS before a single frame is processed — even
+# though NCNN does the actual inference. Together with SegFormer this is the
+# most likely trigger for an out-of-memory kill.
+#
+# If Stage 2 shows you are tight on RAM, leave HAVE_YOLO_GUARD = False. The
+# ultrasonic array and the segmentation corridor still cover obstacle safety;
+# YOLO is the early-warning layer, not the last line of defence.
+#
+# ultralytics

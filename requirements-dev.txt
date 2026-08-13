@@ -1,0 +1,26 @@
+# Laptop / Colab dependencies. These are for PREPARING artifacts, not for
+# running the car — none of this gets installed on the Pi.
+#
+#   python -m venv .venv
+#   .venv\Scripts\activate          (Windows)   |   source .venv/bin/activate
+#   pip install -r requirements-dev.txt
+#
+# Used by:
+#   scripts/export_models.py       download + quantize SegFormer, export YOLO
+#   scripts/build_campus_graph.py  build the campus routing graph from OSM
+#   scripts/vision_bench.py        offline go/no-go on recorded footage
+#   tests/test_safety.py           needs only numpy + opencv
+
+numpy
+opencv-python
+
+# model export
+torch                  # SegFormer export only; never installed on the Pi
+transformers           # pulls the pretrained SegFormer checkpoint
+onnx
+onnxruntime            # also does the INT8 dynamic quantization
+ultralytics            # YOLOv8n download + NCNN export
+
+# campus routing graph
+osmnx                  # OpenStreetMap -> graphml (laptop only, needs internet)
+networkx

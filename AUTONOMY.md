@@ -71,6 +71,56 @@ hardware, no models and no Pi, and it asserts each row of the table above.
 | `scripts/vision_bench.py` | Phase 1 go/no-go on recorded footage |
 | `tests/test_safety.py` | Steering geometry + fail-closed tests (no hardware) |
 
+## Deploying to the Pi
+
+**Deploy early, not once at the end.** Stage 2 — the go/no-go that decides
+whether this approach works at all — needs only the Pi, a webcam and the
+models. No GPS, no sonar, no wiring. Get code onto the Pi as soon as it boots;
+waiting until every part is soldered means discovering a model or RAM problem
+after you have already spent the money.
+
+**Code** comes over with git:
+
+```bash
+git clone https://github.com/GuptaOum/selfdriving-campus-cart.git
+cd selfdriving-campus-cart
+python -m venv .venv && source .venv/bin/activate
+pip install donkeycar[pi]
+pip install -r requirements-pi.txt
+```
+
+**Models do NOT come over with git.** They are gitignored on purpose — they are
+large binaries and git is the wrong tool for them. Copy them separately, from
+the laptop where you ran `export_models.py`:
+
+```bash
+scp -r exported_models pi@raspberrypi.local:~/selfdriving-campus-cart/mycar/models/
+scp campus_graph.graphml pi@raspberrypi.local:~/selfdriving-campus-cart/mycar/
+```
+
+Same for anything else gitignored: recorded `.mp4` footage, trained `.h5`
+models, and tub data all move by `scp`, never by `git push`.
+
+Then confirm the paths line up with `myconfig.py`:
+
+```
+mycar/models/exported_models/segformer_sidewalk_int8.onnx
+mycar/models/exported_models/segformer_labels.json
+mycar/models/exported_models/yolov8n_ncnn_model/
+mycar/campus_graph.graphml
+```
+
+**Sanity-check before trusting anything**, on the Pi:
+
+```bash
+python tests/test_safety.py          # no hardware needed; must print ALL PASS
+vcgencmd get_throttled               # must be 0x0
+free -m                              # confirm headroom on 2 GB
+```
+
+To update later, `git pull` on the Pi. Only re-`scp` models when you have
+re-exported them.
+
 ## Setup — laptop (once)
 
 ```bash
