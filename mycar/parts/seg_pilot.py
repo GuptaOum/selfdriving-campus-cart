@@ -207,7 +207,7 @@ class SegPilot:
     latest result to the 20 Hz vehicle loop instantly.
 
     Inputs:  cam/image_array (RGB, per DonkeyCar convention), nav/command
-    Outputs: seg/angle, seg/throttle, seg/corridor_clear, seg/fps
+    Outputs: seg/angle, seg/throttle, seg/corridor_clear, seg/fps, seg/mask
 
     FAIL-CLOSED. The vehicle loop runs ~20x faster than inference, so it reuses
     each result many times — which is fine for one inference period and
@@ -240,6 +240,7 @@ class SegPilot:
         self.fps = 0.0
         self.running = True
 
+        self.mask = None
         self._last_image = None
         self._frame_time = 0.0
         self._result_time = 0.0
@@ -263,6 +264,7 @@ class SegPilot:
             except Exception:
                 logger.exception("segmentation failed; treating as blocked")
                 self.angle, self.throttle, self._corridor_clear = 0.0, 0.0, False
+                self.mask = None
                 time.sleep(0.2)  # back off rather than spin hot on a hard fault
             self.fps = 1.0 / max(time.monotonic() - t0, 1e-3)
 
@@ -287,8 +289,10 @@ class SegPilot:
             if now - self._last_stale_log > 2.0:
                 logger.error("SegPilot output stale (%s) — reporting blocked", reason)
                 self._last_stale_log = now
-            return 0.0, 0.0, False, self.fps
-        return self.angle, self.throttle, self._corridor_clear, self.fps
+            # a stale mask must not reach the planner either
+            return 0.0, 0.0, False, self.fps, None
+        return (self.angle, self.throttle, self._corridor_clear,
+                self.fps, self.mask)
 
     def shutdown(self):
         self.running = False

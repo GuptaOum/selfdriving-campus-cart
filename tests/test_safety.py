@@ -32,6 +32,7 @@ from parts.breaker_detect import BreakerDetect, detect_breaker        # noqa: E4
 from parts.gps_nav import (GpsNav, point_in_polygon, bearing_deg,     # noqa: E402
                            haversine_m)
 from parts.safety_arbiter import SafetyArbiter                        # noqa: E402
+from parts.local_planner import LocalPlanner                          # noqa: E402
 
 FAILURES = []
 
@@ -164,27 +165,28 @@ pilot.max_result_age, pilot.max_frame_age = 0.3, 0.3
 pilot.image = pilot.nav_command = None
 pilot.angle, pilot.throttle, pilot._corridor_clear = 0.7, 0.4, True
 pilot.fps = 2.0
+pilot.mask = None
 pilot._last_image, pilot._frame_time = None, 0.0
 pilot._result_time, pilot._last_stale_log = 0.0, 0.0
 
 frame1 = np.zeros((120, 160, 3), np.uint8)
 pilot._result_time = time.monotonic()
-a, t, clear, _ = pilot.run_threaded(frame1)
+a, t, clear, _, _ = pilot.run_threaded(frame1)
 check("fresh result drives", clear and t > 0, f"a={a:.2f} t={t:.2f}")
 
 # a frozen camera part keeps returning the SAME array object
 time.sleep(0.35)
 pilot._result_time = time.monotonic()
-a, t, clear, _ = pilot.run_threaded(frame1)
+a, t, clear, _, _ = pilot.run_threaded(frame1)
 check("frozen camera stops the cart", (not clear) and t == 0.0 and a == 0.0)
 
 frame2 = np.ones((120, 160, 3), np.uint8)
 pilot._result_time = time.monotonic() - 5.0
-a, t, clear, _ = pilot.run_threaded(frame2)
+a, t, clear, _, _ = pilot.run_threaded(frame2)
 check("stalled inference stops the cart", (not clear) and t == 0.0)
 
 pilot._result_time = time.monotonic()
-a, t, clear, _ = pilot.run_threaded(np.full((120, 160, 3), 2, np.uint8))
+a, t, clear, _, _ = pilot.run_threaded(np.full((120, 160, 3), 2, np.uint8))
 check("recovers once healthy again", clear and t > 0)
 
 
@@ -194,18 +196,19 @@ section("YoloGuard fails closed")
 g = YoloGuard.__new__(YoloGuard)
 g.max_result_age, g.max_failures = 1.0, 3
 g._stop = g._slow = False
+g._boxes = []
 g._failures, g._result_time, g._last_stale_log = 0, time.monotonic(), 0.0
 g.fps, g.image = 5.0, None
 
-stop, slow, healthy, _ = g.run_threaded(frame1)
+stop, slow, healthy, _, _ = g.run_threaded(frame1)
 check("healthy guard reports clear", (not stop) and healthy)
 
 g._failures = 3
-stop, _, healthy, _ = g.run_threaded(frame1)
+stop, _, healthy, _, _ = g.run_threaded(frame1)
 check("repeated inference errors force stop", stop and (not healthy))
 
 g._failures, g._result_time = 0, time.monotonic() - 9.0
-stop, _, healthy, _ = g.run_threaded(frame1)
+stop, _, healthy, _, _ = g.run_threaded(frame1)
 check("stalled detector forces stop", stop and (not healthy))
 
 # corridor geometry
@@ -394,7 +397,8 @@ section("SafetyArbiter priority chain")
 BASE = dict(seg_angle=0.5, seg_throttle=0.3, corridor_clear=True,
             sonar_stop=False, sonar_bias=0.0, sonar_healthy=True,
             yolo_stop=False, yolo_slow=False, yolo_healthy=True,
-            breaker_active=False, nav_safe=True, nav_arrived=False)
+            breaker_active=False, nav_safe=True, nav_arrived=False,
+            plan_angle=None, plan_throttle=None, plan_clear=False)
 
 arb = SafetyArbiter(creep_throttle=0.14, mission_requires_gps=True,
                     require_sonar=True, require_yolo=True)
@@ -440,6 +444,102 @@ check("indoor mode ignores GPS and absent layers",
                         "yolo_healthy": False}) == (0.5, 0.3))
 check("sonar still stops in indoor mode",
       arb_indoor.run(**{**BASE, "sonar_stop": True}) == (0.0, 0.0))
+
+
+# =====================================================================
+section("LocalPlanner steers around obstacles")
+# =====================================================================
+# The point of the planner: a person on the path should be driven AROUND when
+# there is room, not merely stopped at. Grids are built directly here, so no
+# camera, homography or warp is involved.
+
+def make_planner(**kw):
+    p = LocalPlanner.__new__(LocalPlanner)
+    p.cart_width_m = kw.get("cart_width_m", 0.28)
+    p.wheelbase_m = 0.32
+    p.safety_margin_m = kw.get("safety_margin_m", 0.12)
+    p.horizon_m, p.res, p.lateral_m = 3.0, 0.05, 1.6
+    p.rows, p.cols = int(3.0 / 0.05), int(2 * 1.6 / 0.05)
+    p.n_candidates, p.max_steer_rad = 21, 0.52
+    p.smoothness_weight, p.heading_weight = 0.35, 0.5
+    p.throttle_cruise, p.throttle_creep = 0.30, 0.16
+    p.min_clear_m = 0.45
+    p._prev_steer = 0.0
+    inflate = int(round((p.cart_width_m / 2 + p.safety_margin_m) / p.res))
+    k = max(3, 2 * inflate + 1)
+    p._inflate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    p.homography, p.enabled = None, True
+    return p
+
+planner = make_planner()
+R, C = planner.rows, planner.cols
+
+def open_path(width_m=2.0):
+    g = np.zeros((R, C), np.uint8)
+    half = int((width_m / 2) / planner.res)
+    g[:, C // 2 - half:C // 2 + half] = 1
+    return g
+
+# clear path -> go straight, full clearance
+g = open_path()
+steer, clear_m, _ = planner.plan(g, goal_bias=0.0)
+check("open path: drives straight", abs(steer) < 0.15, f"steer={steer:+.2f}")
+check("open path: full clearance", clear_m > 2.5, f"clear={clear_m:.1f}m")
+
+# person 1.5 m ahead, standing slightly RIGHT of centre, room on the left
+def person_at(x_m, y_m, radius_m=0.25, base=None):
+    g = open_path() if base is None else base.copy()
+    row = int((planner.horizon_m - x_m) / planner.res)
+    col = int((planner.lateral_m - y_m) / planner.res)
+    cv2.circle(g, (col, row), int(radius_m / planner.res), 0, -1)
+    return g
+
+planner._prev_steer = 0.0
+g = planner.inflate(person_at(1.5, -0.35))
+steer, clear_m, _ = planner.plan(g, goal_bias=0.0)
+# direction is what matters, not magnitude: if a small dodge already clears
+# the way, a violent swerve would be the wrong answer
+check("person on the right: steers LEFT around them",
+      steer < 0 and clear_m > 1.5, f"steer={steer:+.2f} clear={clear_m:.1f}m")
+
+# mirror it: person on the left -> go right
+planner._prev_steer = 0.0
+g = planner.inflate(person_at(1.5, 0.35))
+steer, clear_m, _ = planner.plan(g, goal_bias=0.0)
+check("person on the left: steers RIGHT around them",
+      steer > 0 and clear_m > 1.5, f"steer={steer:+.2f} clear={clear_m:.1f}m")
+
+# a person filling a NARROW path leaves no room -> must not squeeze past
+planner._prev_steer = 0.0
+narrow = person_at(1.2, 0.0, radius_m=0.35, base=open_path(width_m=1.0))
+g = planner.inflate(narrow)
+steer, throttle, clear, dist = planner.run.__wrapped__(planner, None)     if hasattr(planner.run, "__wrapped__") else (None, None, None, None)
+_, clear_m, _ = planner.plan(g, goal_bias=0.0)
+check("blocked narrow path: no arc gets through",
+      clear_m < 1.2, f"clear={clear_m:.1f}m")
+
+# safety margin must actually bite: a gap barely wider than the cart is not
+# passable once the margin is added
+planner_wide = make_planner(safety_margin_m=0.30)
+gap = np.zeros((R, C), np.uint8)
+gap_half = int((0.50 / 2) / planner_wide.res)      # 50 cm gap, cart is 28 cm
+gap[:, C // 2 - gap_half:C // 2 + gap_half] = 1
+_, clear_tight, _ = planner_wide.plan(planner_wide.inflate(gap), goal_bias=0.0)
+check("margin refuses a gap only just wider than the cart",
+      clear_tight < 1.0, f"clear={clear_tight:.1f}m")
+
+# same gap, no margin demanded -> now it fits
+planner_thin = make_planner(safety_margin_m=0.0)
+_, clear_loose, _ = planner_thin.plan(planner_thin.inflate(gap), goal_bias=0.0)
+check("without margin the same gap is passable",
+      clear_loose > clear_tight, f"{clear_loose:.1f}m vs {clear_tight:.1f}m")
+
+# goal bias should influence the choice when both ways are equally clear
+planner._prev_steer = 0.0
+sL, _, _ = planner.plan(open_path(width_m=3.0), goal_bias=-0.6)
+planner._prev_steer = 0.0
+sR, _, _ = planner.plan(open_path(width_m=3.0), goal_bias=0.6)
+check("junction bias shifts the chosen arc", sL < sR, f"L={sL:+.2f} R={sR:+.2f}")
 
 
 # =====================================================================

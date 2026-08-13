@@ -961,11 +961,15 @@ def add_campus_autonomy(V, cfg):
             'sonar/stop', 'sonar/bias', 'sonar/healthy',
             'yolo/stop', 'yolo/slow', 'yolo/healthy',
             'breaker/active', 'nav/safe', 'nav/arrived', 'nav/command',
-            'gps/lat', 'gps/lon', 'mission/route']
+            'gps/lat', 'gps/lon', 'mission/route',
+            'seg/mask', 'yolo/boxes',
+            'plan/angle', 'plan/throttle', 'plan/clear', 'plan/distance_m']
     V.mem.put(keys, [0.0, 0.0, False,
                      False, 0.0, True,
                      False, False, True,
-                     False, False, False, None, 0.0, 0.0, None])
+                     False, False, False, None, 0.0, 0.0, None,
+                     None, None,
+                     None, None, False, 0.0])
 
     have_sonar = getattr(cfg, 'HAVE_ULTRASONIC', False)
     have_yolo = getattr(cfg, 'HAVE_YOLO_GUARD', False)
@@ -1016,7 +1020,8 @@ def add_campus_autonomy(V, cfg):
         guard = YoloGuard(model_path=cfg.YOLO_MODEL_PATH,
                           imgsz=getattr(cfg, 'YOLO_IMGSZ', 320))
         V.add(guard, inputs=['cam/image_array'],
-              outputs=['yolo/stop', 'yolo/slow', 'yolo/healthy', 'yolo/fps'],
+              outputs=['yolo/stop', 'yolo/slow', 'yolo/healthy', 'yolo/fps',
+                       'yolo/boxes'],
               threaded=True)
 
     from parts.seg_pilot import SegPilot
@@ -1031,8 +1036,28 @@ def add_campus_autonomy(V, cfg):
                      throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
                      throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16))
     V.add(pilot, inputs=['cam/image_array', 'nav/command'],
-          outputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear', 'seg/fps'],
+          outputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear',
+                   'seg/fps', 'seg/mask'],
           threaded=True)
+
+    # Local planner: steers AROUND obstacles instead of stopping at them.
+    # Overrides seg_pilot's centreline steering when a homography exists;
+    # without one it passes seg_pilot's decision straight through, so enabling
+    # it cannot silently break a working cart.
+    if getattr(cfg, 'HAVE_LOCAL_PLANNER', False):
+        from parts.local_planner import LocalPlanner
+        V.add(LocalPlanner(
+                homography_path=cfg.PLANNER_HOMOGRAPHY,
+                cart_width_m=getattr(cfg, 'CART_WIDTH_M', 0.28),
+                wheelbase_m=getattr(cfg, 'CART_WHEELBASE_M', 0.32),
+                safety_margin_m=getattr(cfg, 'PLANNER_SAFETY_MARGIN_M', 0.12),
+                horizon_m=getattr(cfg, 'PLANNER_HORIZON_M', 3.0),
+                throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
+                throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16)),
+              inputs=['seg/mask', 'seg/angle', 'seg/corridor_clear',
+                      'yolo/boxes', 'nav/command'],
+              outputs=['plan/angle', 'plan/throttle', 'plan/clear',
+                       'plan/distance_m'])
 
     from parts.safety_arbiter import SafetyArbiter
     arbiter = SafetyArbiter(
@@ -1045,7 +1070,8 @@ def add_campus_autonomy(V, cfg):
           inputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear',
                   'sonar/stop', 'sonar/bias', 'sonar/healthy',
                   'yolo/stop', 'yolo/slow', 'yolo/healthy',
-                  'breaker/active', 'nav/safe', 'nav/arrived'],
+                  'breaker/active', 'nav/safe', 'nav/arrived',
+                  'plan/angle', 'plan/throttle', 'plan/clear'],
           outputs=['pilot/angle', 'pilot/throttle'])
 
 

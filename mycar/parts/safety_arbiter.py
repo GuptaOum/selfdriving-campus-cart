@@ -62,7 +62,8 @@ class SafetyArbiter:
     def run(self, seg_angle, seg_throttle, corridor_clear,
             sonar_stop, sonar_bias, sonar_healthy,
             yolo_stop, yolo_slow, yolo_healthy,
-            breaker_active, nav_safe, nav_arrived):
+            breaker_active, nav_safe, nav_arrived,
+            plan_angle=None, plan_throttle=None, plan_clear=False):
         # tolerate not-yet-initialized threaded parts
         seg_angle = seg_angle or 0.0
         seg_throttle = seg_throttle or 0.0
@@ -85,17 +86,30 @@ class SafetyArbiter:
         if nav_arrived:
             self._log("arrived at destination")
             return 0.0, 0.0
-        if yolo_stop:
-            self._log("person/obstacle close — stop")
+        if yolo_stop and not plan_clear:
+            # With a planner running, a detected person is only a hard stop
+            # when there is also no way past them. If the planner has found a
+            # passable arc, going around is better than parking in front of
+            # somebody — the throttle is already reduced below.
+            self._log("person/obstacle ahead with no way past — stop")
             return 0.0, 0.0
-        if not corridor_clear:
+        if not corridor_clear and not plan_clear:
             self._log("no drivable corridor — stop")
             return 0.0, 0.0
         if breaker_active:
             self._log("BREAKER mode — straight + creep")
             return 0.0, self._floor(self.creep_throttle)
 
-        throttle = seg_throttle * (0.5 if yolo_slow else 1.0)
-        angle = max(-1.0, min(1.0, seg_angle + (sonar_bias or 0.0)))
-        self._log("driving")
+        # The planner's arc beats the centreline whenever it has one: it is the
+        # only layer that reasons about getting PAST something rather than
+        # following the middle of an empty path.
+        if plan_clear and plan_angle is not None:
+            angle, throttle = plan_angle, (plan_throttle or 0.0)
+            self._log("driving (planned arc)")
+        else:
+            angle, throttle = seg_angle, seg_throttle
+            self._log("driving")
+
+        throttle *= 0.5 if yolo_slow else 1.0
+        angle = max(-1.0, min(1.0, angle + (sonar_bias or 0.0)))
         return angle, self._floor(throttle)

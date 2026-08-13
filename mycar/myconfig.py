@@ -859,3 +859,22 @@ ARBITER_CREEP_THROTTLE = 0.14   # throttle while crossing a speed breaker
 # smooth and self-starting, then set this slightly above that value.
 # 0.0 disables the floor. Zero throttle always stays zero.
 ARBITER_MIN_MOVE_THROTTLE = 0.0
+
+# -- local planner: steer AROUND obstacles instead of stopping at them ---------
+# Without this, a person standing on the path is a full stop even when there is
+# a metre of clear ground beside them. The planner warps the drivable mask into
+# a bird's-eye grid, inflates obstacles by the cart's half-width plus a margin,
+# rolls out candidate steering arcs, and drives the one that gets furthest.
+# No new model and no training data — the perception already exists.
+#
+# Needs a ground-plane homography: python scripts/calibrate_ground_plane.py
+# Without one the planner disables itself and steering falls back to seg_pilot,
+# so turning this on cannot silently break a working cart.
+HAVE_LOCAL_PLANNER = False
+PLANNER_HOMOGRAPHY = "models/ground_plane.json"
+CART_WIDTH_M = 0.28             # MEASURE IT, including wheels at full lock
+CART_WHEELBASE_M = 0.32         # front axle to rear axle; sets the turn arcs
+PLANNER_SAFETY_MARGIN_M = 0.12  # clearance beyond the cart's own width. This
+                                # is what stops it shaving past someone's toes.
+PLANNER_HORIZON_M = 3.0         # plan this far ahead; beyond ~3 m the mask has
+                                # too few pixels per metre to trust

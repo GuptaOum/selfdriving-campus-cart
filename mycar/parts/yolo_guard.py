@@ -32,7 +32,7 @@ class YoloGuard:
     Threaded DonkeyCar part.
 
     Inputs:  cam/image_array (RGB)
-    Outputs: yolo/stop (bool), yolo/slow (bool), yolo/healthy (bool), yolo/fps
+    Outputs: yolo/stop, yolo/slow, yolo/healthy, yolo/fps, yolo/boxes
 
     Corridor test: bottom-center point of a detection must fall inside a
     trapezoid spanning [corridor_bottom_frac] of the width at the bottom of the
@@ -64,6 +64,7 @@ class YoloGuard:
         self.image = None
         self._stop = False
         self._slow = False
+        self._boxes = []
         self.fps = 0.0
         self.running = True
 
@@ -88,6 +89,7 @@ class YoloGuard:
                 continue
             t0 = time.monotonic()
             stop = slow = False
+            found = []
             try:
                 results = self.model.predict(img, imgsz=self.imgsz,
                                              conf=self.conf, verbose=False)
@@ -97,6 +99,10 @@ class YoloGuard:
                     if names.get(int(box.cls)) not in STOP_CLASSES:
                         continue
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    # every detection goes to the planner, in or out of the
+                    # corridor — something beside the path still constrains
+                    # how far we may swerve to get round something else
+                    found.append((x1, y1, x2, y2))
                     if not self._in_corridor((x1 + x2) / 2 / w, y2 / h):
                         continue
                     height_frac = (y2 - y1) / h
@@ -104,7 +110,7 @@ class YoloGuard:
                         stop = True
                     elif height_frac >= self.slow_height_frac:
                         slow = True
-                self._stop, self._slow = stop, slow
+                self._stop, self._slow, self._boxes = stop, slow, found
                 self._failures = 0
                 self._result_time = time.monotonic()
             except Exception:
@@ -127,9 +133,9 @@ class YoloGuard:
             if now - self._last_stale_log > 5.0:
                 logger.error("YoloGuard unhealthy (%s) — forcing stop", unhealthy)
                 self._last_stale_log = now
-            return True, False, False, self.fps
+            return True, False, False, self.fps, []
 
-        return self._stop, self._slow, True, self.fps
+        return self._stop, self._slow, True, self.fps, self._boxes
 
     def shutdown(self):
         self.running = False
