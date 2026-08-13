@@ -24,20 +24,31 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "exported_models"
 
 SEGFORMER_MODEL_ID = "segments-tobias/segformer-b0-finetuned-segments-sidewalk"
 
-# sidewalk-semantic label ids we treat as drivable ground for the cart.
-# Full label list: https://huggingface.co/datasets/segments/sidewalk-semantic
+# sidewalk-semantic label names we treat as drivable ground for the cart.
+# These are the dataset's real strings — the "flat-" prefix is part of the name.
+# Full list: https://huggingface.co/datasets/segments/sidewalk-semantic
+# Matching is case-insensitive because some checkpoints capitalise them.
 DRIVABLE_CLASS_NAMES = [
-    "road",
-    "sidewalk",
-    "path",            # unpaved walkable path
-    "bike-path",
-    "parking",
-    "crosswalk-plain",
-    "curb",            # low curbs are crossable for the suspension; drop if not
+    "flat-road",
+    "flat-sidewalk",
+    "flat-crosswalk",
+    "flat-cyclinglane",
+    "flat-parkingdriveway",
+    # deliberately NOT drivable:
+    #   flat-curb      — the raised edge; driving onto it beaches a 1/8 cart
+    #   flat-railtrack — rails
+    #   nature-terrain — grass/soil shoulder; soft, the cart sinks and strands
 ]
 
-SEG_INPUT_SIZE = 256  # square input on the Pi; keep in sync with myconfig.py
+# Unpaved and ambiguous ground. Campus sand/dirt paths often land in
+# "void-ground" rather than any flat-* class, so if Stage 2 shows your unpaved
+# stretches masked as non-drivable, try enabling this BEFORE spending a day on
+# fine-tuning. It is off by default because "void" also covers genuinely
+# unclear pixels, and treating those as road is optimistic.
+INCLUDE_UNPAVED = False
+UNPAVED_CLASS_NAMES = ["void-ground"]
 
+SEG_INPUT_SIZE = 256  # square input on the Pi; keep in sync with myconfig.py
 
 def export_segformer():
     import torch
@@ -48,13 +59,32 @@ def export_segformer():
     model.eval()
 
     id2label = {int(k): v for k, v in model.config.id2label.items()}
-    drivable_ids = [i for i, name in id2label.items()
-                    if name in DRIVABLE_CLASS_NAMES]
+
+    wanted = {n.lower() for n in DRIVABLE_CLASS_NAMES}
+    if INCLUDE_UNPAVED:
+        wanted |= {n.lower() for n in UNPAVED_CLASS_NAMES}
+    drivable_ids = [i for i, name in id2label.items() if name.lower() in wanted]
+
+    print("\nClass mapping:")
+    for i, name in sorted(id2label.items()):
+        print(f"  {i:3d}  {name}{'   <-- DRIVABLE' if i in drivable_ids else ''}")
+
+    # An empty list silently produces an all-black mask, which looks exactly
+    # like "the model thinks nothing is drivable" — a whole day lost to
+    # debugging a typo. Fail here instead.
+    if not drivable_ids:
+        raise SystemExit(
+            "\nERROR: no class name in DRIVABLE_CLASS_NAMES matched this "
+            "checkpoint's labels (listed above). Edit DRIVABLE_CLASS_NAMES at "
+            "the top of this script to use the exact strings shown.")
+
     labels_path = OUT_DIR / "segformer_labels.json"
     labels_path.write_text(json.dumps(
         {"id2label": id2label, "drivable_ids": drivable_ids,
          "input_size": SEG_INPUT_SIZE}, indent=2))
-    print(f"Wrote {labels_path} (drivable ids: {drivable_ids})")
+    print(f"\nWrote {labels_path}")
+    print(f"  drivable ids: {drivable_ids}")
+    print(f"  = {[id2label[i] for i in drivable_ids]}")
 
     onnx_path = OUT_DIR / "segformer_sidewalk.onnx"
     dummy = torch.randn(1, 3, SEG_INPUT_SIZE, SEG_INPUT_SIZE)

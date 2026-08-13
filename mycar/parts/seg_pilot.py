@@ -47,6 +47,16 @@ class SegEngine:
         meta = json.loads(Path(labels_path).read_text())
         self.drivable_ids = np.array(meta["drivable_ids"], dtype=np.int64)
         self.input_size = int(meta.get("input_size", 256))
+        if self.drivable_ids.size == 0:
+            # would yield an all-zero mask, indistinguishable from "the model
+            # sees no road anywhere" — catch the config error, not the symptom
+            raise ValueError(
+                f"{labels_path} lists no drivable class ids. Re-run "
+                "scripts/export_models.py; check DRIVABLE_CLASS_NAMES matches "
+                "the checkpoint's label strings (they carry a 'flat-' prefix).")
+        logger.info("drivable classes: %s",
+                    [meta["id2label"][str(i)] for i in meta["drivable_ids"]]
+                    if "id2label" in meta else list(meta["drivable_ids"]))
 
         so = ort.SessionOptions()
         so.intra_op_num_threads = 3  # leave a core for the rest of the loop
