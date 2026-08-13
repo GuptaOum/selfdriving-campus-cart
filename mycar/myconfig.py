@@ -776,8 +776,14 @@ SEG_MODEL_PATH = "models/exported_models/segformer_sidewalk_int8.onnx"
 SEG_LABELS_PATH = "models/exported_models/segformer_labels.json"
 SEG_KP = 1.2                    # steering P gain on normalized lateral offset
 SEG_KD = 0.3                    # steering D gain
-SEG_CORRIDOR_FRAC = 0.28        # min drivable width at bottom band, frac of image
-                                # width; recalibrate after the homography step
+SEG_CORRIDOR_FRAC = 0.28        # min drivable width at bottom band, as a
+                                # fraction of IMAGE width — so it depends on
+                                # how much of the frame your path fills, not on
+                                # the path's real width. On a 5 m path filling
+                                # the frame, the cart plus margin is only ~10%
+                                # of the image, so 0.12-0.15 is right and 0.28
+                                # needlessly refuses passable gaps.
+                                # Recalibrate against the 1 m grid.
 SEG_MASK_CLOSE_PX = 9           # morphological closing kernel (mask pixels).
                                 # Bridges gaps so a TEXTURED surface reads as
                                 # one corridor: grass-paver/turf block, gravel
@@ -893,3 +899,11 @@ PLANNER_SAFETY_MARGIN_M = 0.12  # clearance beyond the cart's own width. This
                                 # is what stops it shaving past someone's toes.
 PLANNER_HORIZON_M = 3.0         # plan this far ahead; beyond ~3 m the mask has
                                 # too few pixels per metre to trust
+PLANNER_LATERAL_M = 1.6         # half-width of the planning window, metres.
+                                # MUST cover your path or the cart cannot
+                                # consider the outer edges at all:
+                                #   2 m path  -> 1.2
+                                #   5 m path  -> 2.8   <- wide campus roads
+                                # Costs memory as the square, but the grid is
+                                # tiny either way (a 5 m window at 5 cm is
+                                # 60 x 112 cells).

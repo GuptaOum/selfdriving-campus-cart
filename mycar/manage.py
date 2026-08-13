@@ -1053,6 +1053,7 @@ def add_campus_autonomy(V, cfg):
                 wheelbase_m=getattr(cfg, 'CART_WHEELBASE_M', 0.32),
                 safety_margin_m=getattr(cfg, 'PLANNER_SAFETY_MARGIN_M', 0.12),
                 horizon_m=getattr(cfg, 'PLANNER_HORIZON_M', 3.0),
+                lateral_m=getattr(cfg, 'PLANNER_LATERAL_M', 1.6),
                 throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
                 throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16)),
               inputs=['seg/mask', 'seg/angle', 'seg/corridor_clear',
