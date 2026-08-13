@@ -20,16 +20,13 @@
 # MAX_LOOPS = None        # the vehicle loop can abort after this many iterations, when given a positive integer.
 # 
 # #CAMERA
-CAMERA_TYPE = "CVCAM"   # (PICAM|WEBCAM|CVCAM|CSIC|V4L|D435|MOCK|IMAGE_LIST)
+CAMERA_TYPE = "PICAM"   # (PICAM|WEBCAM|CVCAM|CSIC|V4L|D435|MOCK|IMAGE_LIST)
 # IMAGE_W = 160
 # IMAGE_H = 120
 # IMAGE_DEPTH = 3         # default RGB=3, make 1 for mono
 # CAMERA_FRAMERATE = DRIVE_LOOP_HZ
 # CAMERA_VFLIP = False
 # CAMERA_HFLIP = False
-CAMERA_INDEX = 1  # used for 'WEBCAM' and 'CVCAM' when there is more than one camera connected
-import cv2
-CAMERA_BACKEND = cv2.CAP_DSHOW  # use DirectShow backend on Windows for USB webcams
 # # For CSIC camera - If the camera is mounted in a rotated position, changing the below parameter will correct the output frame orientation
 # CSIC_CAM_GSTREAMER_FLIP_PARM = 0 # (0 => none , 4 => Flip horizontally, 6 => Flip vertically)
 # BGR2RGB = False  # true to convert from BRG format to RGB format; requires opencv
@@ -68,8 +65,11 @@ CAMERA_BACKEND = cv2.CAP_DSHOW  # use DirectShow backend on Windows for USB webc
 # # (deprecated) "PIGPIO_PWM" uses Raspberrys internal PWM
 # # (deprecated) "I2C_SERVO" uses PCA9685 servo controller to control a steering servo and an ESC, as in a standard RC car
 # #
-DRIVE_TRAIN_TYPE = "MOCK"
-# 
+DRIVE_TRAIN_TYPE = "PWM_STEERING_THROTTLE"
+# NOTE: config.py's PWM_STEERING_THROTTLE dict (STEERING_LEFT_PWM, THROTTLE_FORWARD_PWM, etc.)
+# holds placeholder values. Run `donkey calibrate` and override PWM_STEERING_THROTTLE here
+# with your measured pulse values before driving on real hardware.
+#
 # #
 # # PWM_STEERING_THROTTLE
 # #
@@ -561,7 +561,8 @@ DRIVE_TRAIN_TYPE = "MOCK"
 # JOYSTICK_MAX_THROTTLE = 0.5         #this scalar is multiplied with the -1 to 1 throttle value to limit the maximum throttle. This can help if you drop the controller or just don't need the full speed available.
 # JOYSTICK_STEERING_SCALE = 1.0       #some people want a steering that is less sensitve. This scalar is multiplied with the steering -1 to 1. It can be negative to reverse dir.
 # AUTO_RECORD_ON_THROTTLE = True      #if true, we will record whenever throttle is not zero. if false, you must manually toggle recording with some other trigger. Usually circle button on joystick.
-# CONTROLLER_TYPE = 'xbox'            #(ps3|ps4|xbox|pigpio_rc|nimbus|wiiu|F710|rc3|MM1|custom) custom will run the my_joystick.py controller written by the `donkey createjs` command
+CONTROLLER_TYPE = 'ibus'             #(ps3|ps4|xbox|pigpio_rc|nimbus|wiiu|F710|rc3|MM1|custom|ibus) 'ibus' reads the FlySky RX over UART, see ibus_receiver.py
+USE_JOYSTICK_AS_DEFAULT = True       # so `manage.py drive` (no --js flag) uses the ibus controller, not the web joystick
 # USE_NETWORKED_JS = False            #should we listen for remote joystick control over the network?
 # NETWORK_JS_SERVER_IP = None         #when listening for network joystick control, which ip is serving this information
 # JOYSTICK_DEADZONE = 0.01            # when non zero, this is the smallest throttle before recording triggered.
@@ -639,7 +640,8 @@ DRIVE_TRAIN_TYPE = "MOCK"
 # 
 # #RECORD OPTIONS
 # RECORD_DURING_AI = False        #normally we do not record during ai mode. Set this to true to get image and steering records for your Ai. Be careful not to use them to train.
-# AUTO_CREATE_NEW_TUB = False     #create a new tub (tub_YY_MM_DD) directory when recording or append records to data directory directly
+AUTO_CREATE_NEW_TUB = True      #create a new tub (tub_YY_MM_DD) directory when recording or append records to data directory directly
+                                 # ON so each drive session (e.g. one track) gets its own tub dir - keeps multi-track data separable
 # 
 # #LED
 # HAVE_RGB_LED = False            #do you have an RGB LED like https://www.amazon.com/dp/B07BNRZWNF
@@ -761,3 +763,44 @@ DRIVE_TRAIN_TYPE = "MOCK"
 # # PI connection
 # PI_USERNAME = "pi"
 # PI_HOSTNAME = "donkeypi.local"
+
+
+# =============================================================================
+# CAMPUS AUTONOMY STACK (pretrained vision — see AUTONOMY.md at repo root)
+# Set USE_CAMPUS_AUTONOMY = True on the Pi to enable. Parts in mycar/parts/.
+# =============================================================================
+USE_CAMPUS_AUTONOMY = False
+
+# -- segmentation pilot (SegFormer-B0 sidewalk, INT8 ONNX; export_models.py) --
+SEG_MODEL_PATH = "models/exported_models/segformer_sidewalk_int8.onnx"
+SEG_LABELS_PATH = "models/exported_models/segformer_labels.json"
+SEG_KP = 1.2                    # steering P gain on normalized lateral offset
+SEG_KD = 0.3                    # steering D gain
+SEG_CORRIDOR_FRAC = 0.28        # min drivable width at bottom band, frac of image
+                                # width; recalibrate after the homography step
+SEG_THROTTLE_CRUISE = 0.30      # throttle when corridor clear to the horizon
+SEG_THROTTLE_CREEP = 0.16       # throttle when corridor short / crossing breaker
+
+# -- YOLO person/obstacle guard (COCO-pretrained, NCNN; export_models.py) -----
+HAVE_YOLO_GUARD = False
+YOLO_MODEL_PATH = "models/exported_models/yolov8n_ncnn_model"
+YOLO_IMGSZ = 320
+
+# -- HC-SR04 x3 reflex layer (BCM pin numbers; needs pigpiod running) ---------
+# MOUNT >= 10-12 cm high, aimed level, so ~6 cm speed breakers stay below the
+# beam — low-mounted sensors would hard-stop at every breaker forever.
+HAVE_ULTRASONIC = False
+ULTRASONIC_PINS = {"left": (5, 6), "center": (19, 26), "right": (20, 21)}  # (trig, echo)
+SONAR_STOP_CM = 30.0            # any sensor closer -> hard throttle cut
+SONAR_CAUTION_CM = 80.0         # center closer -> creep + steer to open side
+
+# -- GPS navigation + geofence (NEO-M8N on USB via gpsd) ----------------------
+HAVE_GPS_NAV = False
+CAMPUS_GRAPHML = "campus_graph.graphml"   # from scripts/build_campus_graph.py
+GEOFENCE = None                 # [(lat, lon), ...] polygon; fail-closed when set
+MISSION_REQUIRES_GPS = False    # True for outdoor A->B missions: no fix = stop.
+                                # Keep False indoors (no fix is legitimate there).
+
+# -- misc ---------------------------------------------------------------------
+HAVE_BREAKER_DETECT = True      # classical-CV yellow/black stripe detector
+ARBITER_CREEP_THROTTLE = 0.14   # throttle while crossing a speed breaker

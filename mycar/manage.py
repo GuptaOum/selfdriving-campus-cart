@@ -253,7 +253,7 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
         def show_record_count_status():
             rec_tracker_part.last_num_rec_print = 0
             rec_tracker_part.force_alert = 1
-        if (cfg.CONTROLLER_TYPE != "pigpio_rc") and (cfg.CONTROLLER_TYPE != "MM1"):  # these controllers don't use the joystick class
+        if cfg.CONTROLLER_TYPE not in ("pigpio_rc", "MM1", "ibus"):  # these controllers don't use the joystick class
             if isinstance(ctr, JoystickController):
                 ctr.set_button_down_trigger('circle', show_record_count_status) #then we are not using the circle button. hijack that to force a record count indication
         else:
@@ -431,6 +431,16 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
               outputs=['pilot/throttle'])
 
     #
+    # campus autonomy stack: pretrained segmentation pilot + safety layers.
+    # Writes pilot/angle + pilot/throttle, so it takes the place of a
+    # trained --model (and overrides one if both are configured).
+    #
+    if getattr(cfg, 'USE_CAMPUS_AUTONOMY', False):
+        if model_path:
+            logger.warning("USE_CAMPUS_AUTONOMY overrides the --model pilot outputs")
+        add_campus_autonomy(V, cfg)
+
+    #
     # to give the car a boost when starting ai mode in a race.
     # This will also override the stop sign detector so that
     # you can start at a stop sign using launch mode, but
@@ -453,7 +463,7 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
           outputs=['steering', 'throttle'])
 
 
-    if (cfg.CONTROLLER_TYPE != "pigpio_rc") and (cfg.CONTROLLER_TYPE != "MM1"):
+    if cfg.CONTROLLER_TYPE not in ("pigpio_rc", "MM1", "ibus"):
         if isinstance(ctr, JoystickController):
             ctr.set_button_down_trigger(cfg.AI_LAUNCH_ENABLE_BUTTON, aiLauncher.enable_ai_launch)
 
@@ -716,6 +726,23 @@ def add_user_controller(V, cfg, use_joystick, input_image='ui/image_array'):
                 outputs=['user/steering', 'user/throttle',
                          'user/mode', 'recording'],
                 threaded=False)
+        elif cfg.CONTROLLER_TYPE == "ibus":  # FlySky receiver read over iBUS UART, see ibus_receiver.py
+            from ibus_receiver import IBusReceiver
+            ctr = IBusReceiver(
+                serial_port=cfg.IBUS_SERIAL_PORT,
+                baud=cfg.IBUS_BAUDRATE,
+                steering_channel=cfg.IBUS_STEERING_CHANNEL,
+                throttle_channel=cfg.IBUS_THROTTLE_CHANNEL,
+                mode_channel=cfg.IBUS_MODE_CHANNEL,
+                mode_user_max=cfg.IBUS_MODE_USER_MAX,
+                mode_local_angle_max=cfg.IBUS_MODE_LOCAL_ANGLE_MAX,
+                auto_record_on_throttle=cfg.AUTO_RECORD_ON_THROTTLE)
+            V.add(
+                ctr,
+                inputs=['user/mode', 'recording'],
+                outputs=['user/steering', 'user/throttle',
+                         'user/mode', 'recording'],
+                threaded=True)
         else:
             #
             # custom game controller mapping created with
@@ -919,6 +946,69 @@ def add_imu(V, cfg):
         V.add(imu, outputs=['imu/acl_x', 'imu/acl_y', 'imu/acl_z',
                             'imu/gyr_x', 'imu/gyr_y', 'imu/gyr_z'], threaded=True)
     return imu
+
+
+#
+# Campus autonomy stack (pretrained vision, no training data).
+# Parts live in mycar/parts/; architecture in AUTONOMY.md at the repo root.
+#
+def add_campus_autonomy(V, cfg):
+    # seed defaults so the arbiter runs even with some layers disabled
+    keys = ['seg/angle', 'seg/throttle', 'seg/corridor_clear',
+            'sonar/stop', 'sonar/bias', 'yolo/stop', 'yolo/slow',
+            'breaker/active', 'nav/safe', 'nav/arrived', 'nav/command',
+            'gps/lat', 'gps/lon']
+    V.mem.put(keys, [0.0, 0.0, False, False, 0.0, False, False,
+                     False, False, False, None, 0.0, 0.0])
+
+    if getattr(cfg, 'HAVE_ULTRASONIC', False):
+        from parts.ultrasonic import UltrasonicArray
+        sonar = UltrasonicArray(pins=cfg.ULTRASONIC_PINS,
+                                stop_cm=cfg.SONAR_STOP_CM,
+                                caution_cm=cfg.SONAR_CAUTION_CM)
+        V.add(sonar, outputs=['sonar/left', 'sonar/center', 'sonar/right',
+                              'sonar/stop', 'sonar/bias'], threaded=True)
+
+    if getattr(cfg, 'HAVE_GPS_NAV', False):
+        from parts.gps_nav import GpsNav
+        nav = GpsNav(graphml_path=getattr(cfg, 'CAMPUS_GRAPHML', None),
+                     geofence=getattr(cfg, 'GEOFENCE', None))
+        V.add(nav, outputs=['gps/lat', 'gps/lon', 'nav/command',
+                            'nav/safe', 'nav/arrived'], threaded=True)
+
+    if getattr(cfg, 'HAVE_BREAKER_DETECT', True):
+        from parts.breaker_detect import BreakerDetect
+        V.add(BreakerDetect(), inputs=['cam/image_array'],
+              outputs=['breaker/active'])
+
+    if getattr(cfg, 'HAVE_YOLO_GUARD', False):
+        from parts.yolo_guard import YoloGuard
+        guard = YoloGuard(model_path=cfg.YOLO_MODEL_PATH,
+                          imgsz=getattr(cfg, 'YOLO_IMGSZ', 320))
+        V.add(guard, inputs=['cam/image_array'],
+              outputs=['yolo/stop', 'yolo/slow', 'yolo/fps'], threaded=True)
+
+    from parts.seg_pilot import SegPilot
+    pilot = SegPilot(onnx_path=cfg.SEG_MODEL_PATH,
+                     labels_path=cfg.SEG_LABELS_PATH,
+                     kp=getattr(cfg, 'SEG_KP', 1.2),
+                     kd=getattr(cfg, 'SEG_KD', 0.3),
+                     corridor_frac_bottom=getattr(cfg, 'SEG_CORRIDOR_FRAC', 0.28),
+                     throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
+                     throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16))
+    V.add(pilot, inputs=['cam/image_array', 'nav/command'],
+          outputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear', 'seg/fps'],
+          threaded=True)
+
+    from parts.safety_arbiter import SafetyArbiter
+    arbiter = SafetyArbiter(
+        creep_throttle=getattr(cfg, 'ARBITER_CREEP_THROTTLE', 0.14),
+        mission_requires_gps=getattr(cfg, 'MISSION_REQUIRES_GPS', False))
+    V.add(arbiter,
+          inputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear',
+                  'sonar/stop', 'sonar/bias', 'yolo/stop', 'yolo/slow',
+                  'breaker/active', 'nav/safe', 'nav/arrived'],
+          outputs=['pilot/angle', 'pilot/throttle'])
 
 
 #
