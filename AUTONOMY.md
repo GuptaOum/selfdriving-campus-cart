@@ -215,3 +215,54 @@ the Pi. On the Pi set `HAVE_MISSION_CLIENT = True`, `MISSION_SERVER_URL`, and
 The token is the only thing standing between the open internet and a moving
 vehicle. Put nginx with TLS in front before this is anything but a prototype,
 and keep the security group narrow.
+
+## What actually fits on a bare Pi 4B 2GB (no upgrade)
+
+You can have a genuinely autonomous A→B campus cart on this hardware. The one
+thing to give up is YOLO.
+
+**Why YOLO is the thing to cut.** `ultralytics` imports PyTorch at load time,
+costing several hundred MB of RSS before it sees a frame — on a 2 GB box that
+is most of your headroom, spent on the layer you need least. Segmentation
+already labels a person `human-person`, i.e. not drivable, so **a person is
+already a hole in the mask**, and the LocalPlanner already steers around holes
+in the mask. YOLO only adds early warning at range. Losing it means you react
+to a pedestrian at ~3 m from the mask instead of ~10 m from a detection, which
+slow speed covers.
+
+```python
+USE_CAMPUS_AUTONOMY = True
+HAVE_YOLO_GUARD    = False   # the RAM decision
+HAVE_ULTRASONIC    = True    # cheap, and now your primary close-range safety
+HAVE_LOCAL_PLANNER = True    # ~5 ms; this is what avoids obstacles
+HAVE_GPS_NAV       = True    # negligible cost
+HAVE_MISSION_CLIENT = True   # urllib only, no dependency
+HAVE_BREAKER_DETECT = True   # ~2 ms of OpenCV
+
+SEG_THROTTLE_CRUISE = 0.20   # see the speed maths below
+SEG_THROTTLE_CREEP  = 0.14
+```
+
+**Budget, roughly:** Python + OpenCV + DonkeyCar ~250 MB, SegFormer INT8 at
+256 px ~250 MB, camera buffers ~50 MB. Comfortable inside 1.6 GB. Add
+ultralytics and you are fighting the OOM killer.
+
+**Speed is set by inference rate, not by the motor.** At ~1.5 FPS the cart gets
+one decision every 0.67 s. At 0.5 m/s it travels 33 cm between decisions, which
+a 3 m planning horizon and a 30 cm sonar stop absorb comfortably. At 1 m/s it is
+67 cm and the margin is gone. **Cap it near 0.5 m/s** — slow walking pace, which
+is what a campus delivery cart should be doing anyway.
+
+**If you want more speed, change the model before changing the board.**
+SegFormer is a transformer and its attention does not vectorise well on ARM
+CPUs. A CNN of similar accuracy — **Fast-SCNN** or a MobileNet-backed
+segmentation head, both available pretrained on Cityscapes, which has `road`
+and `sidewalk` — typically runs several times faster on the same silicon.
+Fast-SCNN is what the USF campus sidewalk robot used. Swapping it in means a
+different export in `export_models.py` and a different label mapping; nothing
+else in the stack changes.
+
+**The honest ceiling on this hardware:** follows paths, steers around people
+and obstacles, stops for anything close, crosses speed breakers, navigates
+A→B by GPS, reports to the app. What it will not do is react to a fast-moving
+obstacle, drive faster than a slow walk, or see potholes.
