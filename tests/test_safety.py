@@ -196,7 +196,7 @@ section("YoloGuard fails closed")
 g = YoloGuard.__new__(YoloGuard)
 g.max_result_age, g.max_failures = 1.0, 3
 g._stop = g._slow = False
-g._boxes = []
+g._boxes = []   # (track_id, x1, y1, x2, y2)
 g._failures, g._result_time, g._last_stale_log = 0, time.monotonic(), 0.0
 g.fps, g.image = 5.0, None
 
@@ -471,6 +471,11 @@ def make_planner(**kw):
     k = max(3, 2 * inflate + 1)
     p._inflate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     p.homography, p.enabled = None, True
+    p.assumed_speed_ms = kw.get("assumed_speed_ms", 0.5)
+    p.predict_horizon_s = 2.5
+    p.track_window_s, p.min_track_speed_ms = 0.8, 0.25
+    p._cart_radius = p.cart_width_m / 2 + p.safety_margin_m
+    p._tracks = {}
     return p
 
 planner = make_planner()
@@ -596,6 +601,87 @@ left_half = side[:, :sp.cols // 2].sum()
 right_half = side[:, sp.cols // 2:].sum()
 check("a left-bearing return marks the left side",
       left_half > right_half, f"L={left_half} R={right_half}")
+
+
+# =====================================================================
+section("tracking and predictive planning")
+# =====================================================================
+# Blocking everywhere a moving obstacle MIGHT go would make anyone walking
+# parallel to the cart close the whole path. The question asked instead is
+# "will we and this person be in the same place at the same moment".
+
+pp = make_planner(assumed_speed_ms=0.5)
+open2 = pp.inflate(open_path(width_m=3.0))
+
+# nothing moving: full clearance
+pp._prev_steer = 0.0
+_, base_clear, _ = pp.plan(open2, goal_bias=0.0, moving=None)
+check("no moving obstacles: arc is clear", base_clear > 2.5, f"{base_clear:.1f}m")
+
+# someone walking ACROSS our path, arriving where we will be when we get there
+# meets us at t=2.0 s, x=1.0 m — inside the prediction horizon. Further out
+# than that the arc is planned against static obstacles only, because a
+# pedestrian's velocity six seconds from now is not information.
+crosser = [{"x": 1.0, "y": -1.0, "vx": 0.0, "vy": 0.5, "radius": 0.3, "id": 1}]
+pp._prev_steer = 0.0
+_, cross_clear, _ = pp.plan(open2, goal_bias=0.0, moving=crosser)
+check("a crossing pedestrian shortens the straight arc",
+      cross_clear < base_clear, f"{cross_clear:.1f}m vs {base_clear:.1f}m")
+
+# someone walking AWAY along our path must NOT block us — this is the case a
+# naive swept-volume approach gets wrong
+leaver = [{"x": 1.0, "y": 0.0, "vx": 2.0, "vy": 0.0, "radius": 0.3, "id": 2}]
+pp._prev_steer = 0.0
+_, leave_clear, _ = pp.plan(open2, goal_bias=0.0, moving=leaver)
+check("someone walking away does not block the path",
+      leave_clear > cross_clear, f"{leave_clear:.1f}m vs {cross_clear:.1f}m")
+
+# a stationary object in the same spot blocks regardless of timing
+stander = [{"x": 1.2, "y": 0.0, "vx": 0.0, "vy": 0.0, "radius": 0.3, "id": 3}]
+pp._prev_steer = 0.0
+_, stand_clear, _ = pp.plan(open2, goal_bias=0.0, moving=stander)
+check("a stationary obstacle still blocks", stand_clear < base_clear,
+      f"{stand_clear:.1f}m")
+
+# --- velocity estimation happens on the GROUND, not in the image ---
+tp = make_planner()
+tp.homography = np.eye(3, dtype=np.float32)   # identity: pixels == metres here
+shape = (240, 320, 3)
+
+# same track id seen twice, 0.5 s apart, moved 0.5 m in x -> 1.0 m/s
+t0 = 1000.0
+tp.update_tracks([(7, 100, 100, 140, 150)], shape, t0)
+moving = tp.update_tracks([(7, 100, 100, 140, 200)], shape, t0 + 0.5)
+check("velocity is estimated from repeat sightings", len(moving) == 1,
+      f"{len(moving)} moving")
+if moving:
+    # with an identity homography one "metre" is one pixel, so the foot point
+    # moving 50 px over 0.5 s reads as 100 units/s
+    speed = (moving[0]["vx"] ** 2 + moving[0]["vy"] ** 2) ** 0.5
+    check("velocity is measured on the ground plane, not in the image",
+          abs(speed - 100.0) < 1.0, f"speed={speed:.1f}")
+
+# an object that barely moves is left to the occupancy grid
+tp2 = make_planner()
+tp2.homography = np.eye(3, dtype=np.float32)
+tp2.update_tracks([(9, 100, 100, 140, 150)], shape, t0)
+still = tp2.update_tracks([(9, 100, 100, 140, 150.01)], shape, t0 + 0.5)
+check("a near-stationary track is not treated as moving", still == [],
+      f"{still}")
+
+# a box with no track id yet has no usable velocity and must be skipped
+tp3 = make_planner()
+tp3.homography = np.eye(3, dtype=np.float32)
+tp3.update_tracks([(-1, 100, 100, 140, 150)], shape, t0)
+check("untracked boxes yield no velocity",
+      tp3.update_tracks([(-1, 100, 100, 140, 200)], shape, t0 + 0.5) == [])
+
+# tracks that leave the frame are forgotten rather than accumulating forever
+tp4 = make_planner()
+tp4.homography = np.eye(3, dtype=np.float32)
+tp4.update_tracks([(1, 10, 10, 20, 20), (2, 30, 30, 40, 40)], shape, t0)
+tp4.update_tracks([(1, 10, 10, 20, 20)], shape, t0 + 0.1)
+check("vanished tracks are dropped", list(tp4._tracks) == [1], f"{list(tp4._tracks)}")
 
 
 # =====================================================================

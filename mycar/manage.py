@@ -962,7 +962,7 @@ def add_campus_autonomy(V, cfg):
             'yolo/stop', 'yolo/slow', 'yolo/healthy',
             'breaker/active', 'nav/safe', 'nav/arrived', 'nav/command',
             'gps/lat', 'gps/lon', 'mission/route',
-            'seg/mask', 'yolo/boxes', 'sonar/scan',
+            'seg/mask', 'yolo/tracks', 'sonar/scan',
             'plan/angle', 'plan/throttle', 'plan/clear', 'plan/distance_m']
     V.mem.put(keys, [0.0, 0.0, False,
                      False, 0.0, True,
@@ -1022,7 +1022,7 @@ def add_campus_autonomy(V, cfg):
                           imgsz=getattr(cfg, 'YOLO_IMGSZ', 320))
         V.add(guard, inputs=['cam/image_array'],
               outputs=['yolo/stop', 'yolo/slow', 'yolo/healthy', 'yolo/fps',
-                       'yolo/boxes'],
+                       'yolo/tracks'],
               threaded=True)
 
     from parts.seg_pilot import SegPilot
@@ -1055,9 +1055,11 @@ def add_campus_autonomy(V, cfg):
                 horizon_m=getattr(cfg, 'PLANNER_HORIZON_M', 3.0),
                 lateral_m=getattr(cfg, 'PLANNER_LATERAL_M', 1.6),
                 throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
-                throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16)),
+                throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16),
+                assumed_speed_ms=getattr(cfg, 'PLANNER_ASSUMED_SPEED_MS', 0.5),
+                predict_horizon_s=getattr(cfg, 'PLANNER_PREDICT_HORIZON_S', 2.5)),
               inputs=['seg/mask', 'seg/angle', 'seg/corridor_clear',
-                      'yolo/boxes', 'nav/command', 'sonar/scan'],
+                      'yolo/tracks', 'nav/command', 'sonar/scan'],
               outputs=['plan/angle', 'plan/throttle', 'plan/clear',
                        'plan/distance_m'])
 

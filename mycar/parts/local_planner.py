@@ -34,6 +34,7 @@ enabling this cannot silently break a working cart.
 import json
 import logging
 import math
+import time
 from pathlib import Path
 
 import cv2
@@ -57,7 +58,9 @@ class LocalPlanner:
                  n_candidates=21, max_steer_rad=0.52,
                  smoothness_weight=0.35, heading_weight=0.5,
                  throttle_cruise=0.30, throttle_creep=0.16,
-                 min_clear_m=0.45):
+                 min_clear_m=0.45,
+                 assumed_speed_ms=0.5, predict_horizon_s=2.5,
+                 track_window_s=0.8, min_track_speed_ms=0.25):
         """
         :param homography_path: JSON from scripts/calibrate_ground_plane.py.
                Missing or unreadable -> planner disables itself and the cart
@@ -71,6 +74,19 @@ class LocalPlanner:
         :param max_steer_rad: physical steering limit, ~30 deg by default.
         :param min_clear_m: an arc must reach at least this far to count as
                passable. Below it, treat the way as blocked and stop.
+        :param assumed_speed_ms: how fast we expect to travel while executing
+               the plan. Converts distance along an arc into TIME, which is
+               what lets a moving obstacle be checked at the moment we would
+               actually meet it. Set it near your real cruising speed; too high
+               and the cart thinks it will beat people to the crossing point.
+        :param predict_horizon_s: stop extrapolating past this. A pedestrian's
+               velocity is a decent guess for a couple of seconds and fiction
+               after that — they turn, stop, or change their mind.
+        :param track_window_s: history used for the velocity estimate. Short
+               enough to notice a turn, long enough not to be noise.
+        :param min_track_speed_ms: below this an object counts as standing
+               still and the occupancy grid already handles it. Stops detection
+               jitter from inventing phantom motion.
         """
         self.cart_width_m = cart_width_m
         self.wheelbase_m = wheelbase_m
@@ -89,6 +105,13 @@ class LocalPlanner:
         self.cols = int(2 * lateral_m / grid_res_m)      # Y lateral
         self.n_candidates = n_candidates
         self._prev_steer = 0.0
+
+        self.assumed_speed_ms = assumed_speed_ms
+        self.predict_horizon_s = predict_horizon_s
+        self.track_window_s = track_window_s
+        self.min_track_speed_ms = min_track_speed_ms
+        self._cart_radius = cart_width_m / 2.0 + safety_margin_m
+        self._tracks = {}          # track_id -> [(t, x_m, y_m), ...]
 
         # inflating by the cart's half-width lets us treat it as a point
         inflate_cells = int(round(
@@ -188,7 +211,60 @@ class LocalPlanner:
                     extra[row, col] = 1
         return extra
 
-    def boxes_to_grid(self, boxes, image_shape):
+    def _foot_to_ground(self, x1, y2_bottom, x2):
+        """Bottom-centre of a box -> (x, y) metres on the ground plane."""
+        foot = np.array([[[(x1 + x2) / 2.0, y2_bottom]]], dtype=np.float32)
+        g = cv2.perspectiveTransform(foot, self.homography)[0][0]
+        return float(g[0]), float(g[1])
+
+    def update_tracks(self, tracks, image_shape, now):
+        """
+        Turn tracked boxes into ground positions and velocities.
+
+        Velocity is computed on the GROUND, never in the image. A person
+        walking at a steady 1.4 m/s crosses far more pixels per second when
+        near the camera than when far from it, so image-space motion says more
+        about distance than about speed. Metres per second on the ground plane
+        is the only version worth planning against.
+
+        :param tracks: [(track_id, x1, y1, x2, y2), ...] from YoloGuard
+        :return: [{"x","y","vx","vy","radius"}, ...] for moving objects
+        """
+        seen = set()
+        moving = []
+        h, w = image_shape[:2]
+
+        for tid, x1, y1, x2, y2 in tracks or []:
+            if tid < 0:
+                continue                      # tracker has no identity for it yet
+            seen.add(tid)
+            x_m, y_m = self._foot_to_ground(x1, y2, x2)
+            hist = self._tracks.setdefault(tid, [])
+            hist.append((now, x_m, y_m))
+            # keep a short window: long history smooths away the turn we care about
+            while len(hist) > 1 and now - hist[0][0] > self.track_window_s:
+                hist.pop(0)
+            if len(hist) < 2:
+                continue
+
+            dt = hist[-1][0] - hist[0][0]
+            if dt < 0.15:                     # too short to divide by safely
+                continue
+            vx = (hist[-1][1] - hist[0][1]) / dt
+            vy = (hist[-1][2] - hist[0][2]) / dt
+            speed = math.hypot(vx, vy)
+            if speed < self.min_track_speed_ms:
+                continue                      # standing still: the grid has it
+
+            radius = max(0.2, ((x2 - x1) / w) * self.lateral_m)
+            moving.append({"x": x_m, "y": y_m, "vx": vx, "vy": vy,
+                           "radius": radius, "id": tid})
+
+        for tid in [t for t in self._tracks if t not in seen]:
+            del self._tracks[tid]             # gone from view; drop its history
+        return moving
+
+    def boxes_to_grid(self, tracks, image_shape):
         """
         Project detection boxes onto the ground and mark them blocked.
 
@@ -198,15 +274,14 @@ class LocalPlanner:
         YOLO still boxes it confidently.
         """
         extra = np.zeros((self.rows, self.cols), np.uint8)
-        if not boxes:
+        if not tracks:
             return extra
         h, w = image_shape[:2]
-        for x1, y1, x2, y2 in boxes:
+        for item in tracks:
+            _, x1, y1, x2, y2 = item if len(item) == 5 else (-1, *item)
             # an object touches the ground along the BOTTOM edge of its box;
             # its top is in the air and would project to nonsense
-            foot = np.array([[[(x1 + x2) / 2.0, y2]]], dtype=np.float32)
-            ground = cv2.perspectiveTransform(foot, self.homography)[0][0]
-            x_m, y_m = float(ground[0]), float(ground[1])
+            x_m, y_m = self._foot_to_ground(x1, y2, x2)
             row = int((self.horizon_m - x_m) / self.res)
             col = int((self.lateral_m - y_m) / self.res)
             if 0 <= row < self.rows and 0 <= col < self.cols:
@@ -216,7 +291,7 @@ class LocalPlanner:
 
     # ---------- arc rollout ----------
 
-    def _arc_clearance(self, grid, steer):
+    def _arc_clearance(self, grid, steer, moving=None):
         """
         How far the cart gets along this steering arc before hitting
         something, in metres. Bicycle model at constant curvature.
@@ -246,9 +321,27 @@ class LocalPlanner:
                 break            # left the planned area; stop counting here
             if grid[row, col] == 0:
                 return travelled
+
+            # Moving obstacles are checked in TIME, not just space. We reach
+            # this point at t = distance / speed, so compare against where the
+            # obstacle will be THEN. Blocking everywhere it might ever go would
+            # make someone walking parallel to us close the whole path; asking
+            # "will we be in the same place at the same moment" does not.
+            if moving:
+                t = travelled / max(self.assumed_speed_ms, 0.05)
+                # Past the horizon the arc is planned against static obstacles
+                # only. At 0.5 m/s a 3 m plan takes 6 s to drive, and nobody
+                # can say where a pedestrian will be in 6 s — extrapolating
+                # that far would block paths on the strength of fiction.
+                if t <= self.predict_horizon_s:
+                    for o in moving:
+                        px = o["x"] + o["vx"] * t
+                        py = o["y"] + o["vy"] * t
+                        if math.hypot(x - px, y - py) < o["radius"] + self._cart_radius:
+                            return travelled
         return travelled
 
-    def plan(self, grid, goal_bias=0.0):
+    def plan(self, grid, goal_bias=0.0, moving=None):
         """
         Score every candidate arc and return (steer, clearance_m, debug).
 
@@ -258,7 +351,7 @@ class LocalPlanner:
         best, best_score, scores = 0.0, -1e9, []
         for i in range(self.n_candidates):
             steer = -1.0 + 2.0 * i / (self.n_candidates - 1)
-            clear = self._arc_clearance(grid, steer)
+            clear = self._arc_clearance(grid, steer, moving)
 
             # progress dominates: an arc that goes nowhere is worthless however
             # nicely it points
@@ -276,7 +369,7 @@ class LocalPlanner:
     # ---------- part interface ----------
 
     def run(self, mask=None, seg_angle=0.0, corridor_clear=False,
-            boxes=None, nav_command=None, sonar_scan=None):
+            tracks=None, nav_command=None, sonar_scan=None):
         if not self.enabled or mask is None:
             # planner off or no perception: pass seg_pilot's decision through
             return seg_angle or 0.0, 0.0, bool(corridor_clear), 0.0
@@ -284,8 +377,8 @@ class LocalPlanner:
         try:
             grid = self.build_grid(mask)
             extra = np.zeros((self.rows, self.cols), np.uint8)
-            if boxes:
-                extra |= self.boxes_to_grid(boxes, mask.shape)
+            if tracks:
+                extra |= self.boxes_to_grid(tracks, mask.shape)
             if sonar_scan:
                 # measured beats inferred: these are time-of-flight readings,
                 # not a network's opinion projected through a homography
@@ -297,8 +390,10 @@ class LocalPlanner:
 
         # where we would LIKE to go; the planner may overrule it to get past
         # something, which is the entire point
+        moving = self.update_tracks(tracks, mask.shape, time.monotonic())
         goal_bias = {"LEFT": -0.6, "RIGHT": 0.6}.get(nav_command, seg_angle or 0.0)
-        steer, clear_m, _ = self.plan(grid, goal_bias=max(-1.0, min(1.0, goal_bias)))
+        steer, clear_m, _ = self.plan(grid, goal_bias=max(-1.0, min(1.0, goal_bias)),
+                                      moving=moving)
 
         if clear_m < self.min_clear_m:
             # every arc is blocked within a cart length; there is no way past

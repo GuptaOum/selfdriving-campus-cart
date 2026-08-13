@@ -907,3 +907,16 @@ PLANNER_LATERAL_M = 1.6         # half-width of the planning window, metres.
                                 # Costs memory as the square, but the grid is
                                 # tiny either way (a 5 m window at 5 cm is
                                 # 60 x 112 cells).
+
+# -- moving-obstacle prediction ------------------------------------------------
+# YOLO tracking (ByteTrack) gives each object a persistent id; the planner turns
+# that into a GROUND velocity and checks each candidate arc in TIME, not just
+# space: "will we and this person be in the same place at the same moment?"
+# Blocking everywhere an obstacle might ever go would make someone walking
+# parallel to the cart close the entire path.
+PLANNER_ASSUMED_SPEED_MS = 0.5    # your real cruising speed. Too high and the
+                                  # cart assumes it will beat people to the
+                                  # crossing point.
+PLANNER_PREDICT_HORIZON_S = 2.5   # stop extrapolating past this. A pedestrian's
+                                  # velocity is a fair guess for a couple of
+                                  # seconds and fiction after that.

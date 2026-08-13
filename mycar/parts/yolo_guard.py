@@ -32,7 +32,12 @@ class YoloGuard:
     Threaded DonkeyCar part.
 
     Inputs:  cam/image_array (RGB)
-    Outputs: yolo/stop, yolo/slow, yolo/healthy, yolo/fps, yolo/boxes
+    Outputs: yolo/stop, yolo/slow, yolo/healthy, yolo/fps, yolo/tracks
+
+    yolo/tracks carries (track_id, x1, y1, x2, y2) per object. The ID is what
+    makes motion knowable: without a stable identity across frames you have a
+    box this frame and a box last frame with no way to tell whether it is the
+    same person walking or two different people standing.
 
     Corridor test: bottom-center point of a detection must fall inside a
     trapezoid spanning [corridor_bottom_frac] of the width at the bottom of the
@@ -91,18 +96,25 @@ class YoloGuard:
             stop = slow = False
             found = []
             try:
-                results = self.model.predict(img, imgsz=self.imgsz,
-                                             conf=self.conf, verbose=False)
+                # track() rather than predict(): ByteTrack assigns each
+                # object a persistent id, which the planner turns into a
+                # ground velocity. persist=True keeps state between calls.
+                results = self.model.track(img, imgsz=self.imgsz,
+                                           conf=self.conf, verbose=False,
+                                           persist=True, tracker="bytetrack.yaml")
                 h, w = img.shape[:2]
                 names = results[0].names
                 for box in results[0].boxes:
                     if names.get(int(box.cls)) not in STOP_CLASSES:
                         continue
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
+                    # -1 when the tracker has not settled on an id yet; such a
+                    # box still blocks space, it just has no usable velocity
+                    tid = int(box.id.item()) if box.id is not None else -1
                     # every detection goes to the planner, in or out of the
                     # corridor — something beside the path still constrains
                     # how far we may swerve to get round something else
-                    found.append((x1, y1, x2, y2))
+                    found.append((tid, x1, y1, x2, y2))
                     if not self._in_corridor((x1 + x2) / 2 / w, y2 / h):
                         continue
                     height_frac = (y2 - y1) / h
