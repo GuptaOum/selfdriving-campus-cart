@@ -15,9 +15,16 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# COCO classes that should stop a 1/8-scale cart when in the corridor
-STOP_CLASSES = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle",
-                15: "cat", 16: "dog"}
+# Classes that should stop a 1/8-scale cart when they are in its corridor.
+# Matched by NAME, not index, so this survives a fine-tuned model whose class
+# ordering differs from stock COCO. Names are the standard COCO80 spellings.
+#
+# 'cow' and 'dog' matter on an Indian campus specifically: strays wander onto
+# paths, and both are in COCO already — no fine-tuning needed to catch them.
+STOP_CLASSES = {
+    "person", "bicycle", "car", "motorcycle", "bus", "truck",
+    "dog", "cat", "cow", "horse", "sheep",
+}
 
 
 class YoloGuard:
@@ -85,8 +92,9 @@ class YoloGuard:
                 results = self.model.predict(img, imgsz=self.imgsz,
                                              conf=self.conf, verbose=False)
                 h, w = img.shape[:2]
+                names = results[0].names
                 for box in results[0].boxes:
-                    if int(box.cls) not in STOP_CLASSES:
+                    if names.get(int(box.cls)) not in STOP_CLASSES:
                         continue
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
                     if not self._in_corridor((x1 + x2) / 2 / w, y2 / h):
