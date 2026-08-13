@@ -6,11 +6,13 @@ An autonomous RC car built on the [DonkeyCar](https://www.donkeycar.com/) platfo
 
 ## Vision & Roadmap
 
-| Stage | Goal | Status |
-|-------|------|--------|
-| 1. Prototype (this repo) | RC car drives itself around a track using a trained neural network | 🔄 In progress |
-| 2. AI commands | Natural-language commands ("go to the parking area") via YOLO object detection + LLM command parsing | 📋 Planned |
-| 3. Campus cart | Full-size cart, point-A-to-point-B navigation, delivery scheduling | 🎯 Future |
+| Phase | Goal | Approach | Status |
+|-------|------|----------|--------|
+| **1. Track autonomy** | Car drives itself around indoor tracks with obstacles; train and compare models across 5–6 different track layouts | Behavioral cloning (DonkeyCar) | 🔄 **In progress — current focus** |
+| **2. Campus delivery** | Point-A-to-point-B outdoor navigation on campus paths, obstacle avoidance, live tracking app | Pretrained segmentation + geometric steering | 🧊 Code written, dormant behind a config flag |
+| 3. AI commands | Natural-language commands ("go to the parking area") via object detection + LLM command parsing | YOLO + LLM | 📋 Deferred, not cancelled |
+
+Phase 1 is the priority and is unaffected by Phase 2 — see below.
 
 ## How It Works
 
@@ -19,6 +21,36 @@ DonkeyCar uses **behavioral cloning**: you drive the car manually around a track
 ```
 Drive manually → Record data → Train CNN → Car drives itself
 ```
+
+## Two driving modes (they do not interfere)
+
+The repo contains two completely independent ways to drive the car. Only one is
+active at a time, chosen by a single flag in `myconfig.py`.
+
+| | **Phase 1 — Behavioral cloning** | **Phase 2 — Pretrained vision** |
+|---|---|---|
+| Flag | `USE_CAMPUS_AUTONOMY = False` *(default)* | `USE_CAMPUS_AUTONOMY = True` |
+| Needs training data | Yes — you drive and record | No — models are pretrained |
+| Steering comes from | A CNN trained on your driving | Geometry over a drivable-area mask |
+| Best for | Repeatable tracks, model comparison | Open campus paths, unseen routes |
+| Code | stock DonkeyCar + `ibus_receiver.py` | `mycar/parts/` |
+
+**The default is Phase 1.** With `USE_CAMPUS_AUTONOMY = False`, `manage.py` behaves
+exactly like stock DonkeyCar — record tubs, `train.py`, then
+`manage.py drive --model models/mypilot.h5`. Nothing in `mycar/parts/` loads or runs.
+
+### Phase 1 plan: multi-track training
+
+Train and evaluate across 5–6 different track layouts with obstacles, to measure how
+well a cloned model generalizes rather than memorizes:
+
+- Record a tub per track, keeping layouts visually distinct.
+- Train per-track models *and* one combined model; compare lap success rates.
+- Ablations worth running: `linear` vs `categorical` model type, and
+  `ROI_CROP_TOP` on vs off — cropping the top of the frame removes track-specific
+  background and is the single biggest anti-overfitting lever.
+- Set `CREATE_TF_LITE = True`. Training happens on x86, inference on ARM, and
+  mismatched TensorFlow versions are the most common "model won't load" failure.
 
 ## Hardware Architecture
 
@@ -34,7 +66,7 @@ FlySky Transmitter ──RF──▶ FlySky Receiver ──iBUS/UART──▶ Ra
 - **Servo + ESC** — powered from an external battery rail; **all components share a common ground**.
 - **Camera** — front-facing, the only sensor the neural network uses.
 
-## AI Command Architecture (Stage 2 — planned)
+## AI Command Architecture (Phase 3 — deferred)
 
 The next stage splits compute between a PC and the Pi over WiFi:
 
@@ -53,10 +85,23 @@ This keeps the heavy AI/vision compute on the PC while the Pi only drives and re
 │   ├── manage.py           # Main vehicle loop — drive, record, autopilot
 │   ├── ibus_receiver.py    # Custom DonkeyCar part: FlySky iBUS receiver over UART
 │   ├── config.py           # DonkeyCar defaults
-│   ├── myconfig.py         # Our overrides (camera type, drivetrain, etc.)
+│   ├── myconfig.py         # Our overrides (camera type, drivetrain, phase flags)
 │   ├── calibrate.py        # Servo/ESC PWM calibration tool
-│   ├── train.py            # Model training entry point
-│   └── data/               # Recorded driving data (images + steering/throttle labels)
+│   ├── train.py            # Phase 1: behavioral-cloning training entry point
+│   ├── data/               # Recorded driving data (images + steering/throttle labels)
+│   └── parts/              # Phase 2 only — dormant unless USE_CAMPUS_AUTONOMY = True
+│       ├── seg_pilot.py        # Drivable-area segmentation + geometric steering
+│       ├── yolo_guard.py       # Pretrained pedestrian/obstacle detection
+│       ├── ultrasonic.py       # HC-SR04 x3 reflex stop layer
+│       ├── breaker_detect.py   # Speed-breaker stripe detector (OpenCV, no ML)
+│       ├── gps_nav.py          # Route following, junction commands, geofence
+│       └── safety_arbiter.py   # Priority merge into final steering/throttle
+├── scripts/                # Phase 2 tooling (run on a laptop, not the Pi)
+│   ├── export_models.py        # Download + quantize the pretrained models
+│   ├── build_campus_graph.py   # OpenStreetMap campus routing graph
+│   └── vision_bench.py         # Offline go/no-go test on recorded footage
+├── AUTONOMY.md             # Phase 2 architecture and setup
+├── BUILD_STAGES.md         # Staged build guide: wiring, tests, parts list
 ├── lanedetection.py        # Classic OpenCV lane detection experiment (Canny + Hough lines)
 ├── test_camera.py          # Camera sanity check
 └── test_server.py          # Simple HTTP server to verify Pi ↔ phone/PC networking
@@ -106,6 +151,11 @@ python manage.py drive --model models/mypilot.h5
 ```
 
 Flip channel 5 on the transmitter to switch into autopilot.
+
+> Steps 3–5 are **Phase 1**, the behavioral-cloning workflow, and are the current
+> focus. Phase 2 (campus autonomy) is documented separately in
+> [AUTONOMY.md](AUTONOMY.md) and stays completely out of the way until you set
+> `USE_CAMPUS_AUTONOMY = True`.
 
 ## Acknowledgements
 

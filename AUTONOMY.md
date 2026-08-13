@@ -1,5 +1,11 @@
 # Campus Autonomy Stack — Pretrained Vision (No Training Data)
 
+> **This is Phase 2 and it is dormant by default.** Phase 1 — behavioral cloning on
+> indoor tracks — remains the current focus and is entirely unaffected by anything
+> here. With `USE_CAMPUS_AUTONOMY = False` (the default) none of these parts import
+> or run, and `manage.py` behaves exactly like stock DonkeyCar. See the README for
+> the phase plan.
+
 The cart drives itself with **pretrained models only**: a SegFormer-B0 sidewalk
 segmentation model finds the drivable path, geometric steering follows it, a
 COCO YOLO watches for pedestrians, HC-SR04s provide a no-ML reflex stop, and

@@ -9,9 +9,11 @@ donkeycar-main/
 # Training artifacts
 mycar/models/
 mycar/logs/
+exported_models/
 
-# Local tool settings
-.claude/
+# Recorded footage / campus map
+campus_graph.graphml
+annotated*.mp4
 
 # Misc
 *.mp4
