@@ -778,6 +778,13 @@ SEG_KP = 1.2                    # steering P gain on normalized lateral offset
 SEG_KD = 0.3                    # steering D gain
 SEG_CORRIDOR_FRAC = 0.28        # min drivable width at bottom band, frac of image
                                 # width; recalibrate after the homography step
+SEG_MASK_CLOSE_PX = 9           # morphological closing kernel (mask pixels).
+                                # Bridges gaps so a TEXTURED surface reads as
+                                # one corridor: grass-paver/turf block, gravel
+                                # with weeds, dappled tree shade. Without it
+                                # those shatter into strips too narrow to pass
+                                # the width test and the cart refuses to move.
+                                # Raise for bigger gaps; 0 disables.
 SEG_THROTTLE_CRUISE = 0.30      # throttle when corridor clear to the horizon
 SEG_THROTTLE_CREEP = 0.16       # throttle when corridor short / crossing breaker
 

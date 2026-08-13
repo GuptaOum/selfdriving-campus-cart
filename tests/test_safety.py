@@ -46,7 +46,7 @@ def section(title):
     print(f"\n--- {title} ---")
 
 
-def make_engine():
+def make_engine(mask_close_px=9):
     """A SegEngine with the steering parameters but no ONNX session."""
     e = SegEngine.__new__(SegEngine)
     e.kp, e.kd = 1.2, 0.0
@@ -54,7 +54,27 @@ def make_engine():
     e.corridor_frac_bottom = 0.28
     e.throttle_cruise, e.throttle_creep = 0.30, 0.16
     e._prev_offset, e._prev_time, e._prev_centroid_frac = 0.0, None, 0.5
+    e.mask_close_px = mask_close_px
+    e._close_kernel = (
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                  (mask_close_px, mask_close_px))
+        if mask_close_px and mask_close_px > 1 else None)
     return e
+
+
+def grass_paver_mask(size, x0, x1, cell=14, hole=8):
+    """
+    A concrete grid with grass growing through it: drivable everywhere inside
+    [x0, x1) EXCEPT a regular lattice of holes. This is what a turf-block path
+    actually segments to, and it is the pattern that used to defeat the
+    corridor test.
+    """
+    m = np.zeros((size, size), np.uint8)
+    m[:, x0:x1] = 1
+    for y in range(0, size, cell):
+        for x in range(x0, x1, cell):
+            m[y:y + hole, x:x + hole] = 0
+    return m
 
 
 # =====================================================================
@@ -100,6 +120,40 @@ check("throttle scales with corridor depth", t_short < t_full,
 
 check("_runs finds contiguous segments",
       _runs(np.array([0, 1, 1, 0, 1, 1, 1, 0], bool)) == [(1, 3), (4, 7)])
+
+
+# =====================================================================
+section("textured surfaces (grass pavers, dappled shade)")
+# =====================================================================
+# Half the area of a turf block is grass. Without mask closing the corridor
+# shatters into strips too narrow to pass the width test, and the cart decides
+# there is no path — on a surface that is perfectly drivable.
+speckled = grass_paver_mask(S, 88, 168)
+
+eng = make_engine(mask_close_px=0)          # closing disabled
+raw = eng.clean_mask(speckled)
+_, _, clear_raw, _ = eng.steer_from_mask(raw)
+check("grass paver WITHOUT closing is (wrongly) blocked", not clear_raw)
+
+eng = make_engine(mask_close_px=9)          # closing enabled
+closed = eng.clean_mask(speckled)
+a, t, clear, _ = eng.steer_from_mask(closed)
+check("grass paver WITH closing is drivable", clear and t > 0,
+      f"a={a:+.2f} t={t:.2f}")
+check("closing keeps the cart centred on the path", abs(a) < 0.2, f"a={a:+.2f}")
+
+# closing must NOT invent a path where there is none, or bridge across a
+# genuine obstacle sitting in the middle of the corridor
+eng = make_engine(mask_close_px=9)
+check("closing does not invent a corridor",
+      not eng.steer_from_mask(eng.clean_mask(np.zeros((S, S), np.uint8)))[2])
+
+wide_gap = np.zeros((S, S), np.uint8)
+wide_gap[:, 20:110] = 1          # left branch
+wide_gap[:, 146:236] = 1         # right branch, 36 px obstacle between
+closed_gap = eng.clean_mask(wide_gap)
+check("closing does not bridge a real obstacle",
+      closed_gap[S // 2, 128] == 0)
 
 
 # =====================================================================

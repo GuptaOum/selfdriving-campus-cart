@@ -30,7 +30,8 @@ class SegEngine:
                  kp=1.2, kd=0.3,
                  bands=5, roi_top=0.4,
                  corridor_frac_bottom=0.28,
-                 throttle_cruise=0.30, throttle_creep=0.16):
+                 throttle_cruise=0.30, throttle_creep=0.16,
+                 mask_close_px=9):
         """
         :param onnx_path: segformer_sidewalk_int8.onnx
         :param labels_path: segformer_labels.json (from export_models.py)
@@ -41,6 +42,13 @@ class SegEngine:
                as a fraction of image width (bot width + margin after homography
                calibration; 0.28 is a conservative pre-calibration default).
                Requirement shrinks linearly toward the top band (perspective).
+        :param mask_close_px: morphological closing kernel, in mask pixels.
+               Bridges gaps in a speckled mask so the corridor reads as one
+               region. Needed for grass-paver / turf block (concrete grid with
+               grass growing through), gravel with weeds, and dappled shade
+               under trees — all of which segment as a checkerboard that would
+               otherwise be rejected as dozens of too-narrow runs. Set to 0 to
+               disable; raise it if your surface has bigger gaps.
         """
         import onnxruntime as ort  # deferred: not needed for unit tests of steering
 
@@ -68,9 +76,31 @@ class SegEngine:
         self.bands, self.roi_top = bands, roi_top
         self.corridor_frac_bottom = corridor_frac_bottom
         self.throttle_cruise, self.throttle_creep = throttle_cruise, throttle_creep
+        self.mask_close_px = mask_close_px
+        self._close_kernel = (
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
+                                      (mask_close_px, mask_close_px))
+            if mask_close_px and mask_close_px > 1 else None)
         self._prev_offset = 0.0
         self._prev_time = None
         self._prev_centroid_frac = 0.5
+
+    def clean_mask(self, mask):
+        """
+        Bridge small non-drivable gaps so a textured surface reads as one
+        corridor rather than a field of narrow strips.
+
+        Grass-paver blocks are the motivating case: roughly half the area is
+        grass growing through a concrete grid, so the raw mask is a
+        checkerboard. Every strip then fails the corridor-width test and the
+        cart decides there is no path at all. Closing (dilate then erode)
+        fills holes smaller than the kernel while leaving the outer edges of
+        the path where they are — so a genuine obstacle or a real path
+        boundary still reads correctly.
+        """
+        if self._close_kernel is None:
+            return mask
+        return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self._close_kernel)
 
     def infer_mask(self, frame_bgr):
         """frame (any size, BGR) -> binary drivable mask at input_size x input_size."""
@@ -83,7 +113,8 @@ class SegEngine:
         # SegFormer logits come out at 1/4 resolution; argmax there, upsample nearest
         classes = np.argmax(logits[0], axis=0).astype(np.int64)
         drivable = np.isin(classes, self.drivable_ids).astype(np.uint8)
-        return cv2.resize(drivable, (s, s), interpolation=cv2.INTER_NEAREST)
+        drivable = cv2.resize(drivable, (s, s), interpolation=cv2.INTER_NEAREST)
+        return self.clean_mask(drivable)
 
     def steer_from_mask(self, mask, nav_command=None):
         """
