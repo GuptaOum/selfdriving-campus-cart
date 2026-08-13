@@ -985,7 +985,8 @@ def add_campus_autonomy(V, cfg):
                      geofence=getattr(cfg, 'GEOFENCE', None),
                      junction_radius_m=getattr(cfg, 'GPS_JUNCTION_RADIUS_M', 12.0),
                      arrive_radius_m=getattr(cfg, 'GPS_ARRIVE_RADIUS_M', 8.0),
-                     fix_stale_secs=getattr(cfg, 'GPS_FIX_STALE_SECS', 4.0))
+                     fix_stale_secs=getattr(cfg, 'GPS_FIX_STALE_SECS', 4.0),
+                     destination=getattr(cfg, 'MISSION_DESTINATION', None))
         V.add(nav, outputs=['gps/lat', 'gps/lon', 'nav/command',
                             'nav/safe', 'nav/arrived'], threaded=True)
 

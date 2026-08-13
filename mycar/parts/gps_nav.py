@@ -61,12 +61,19 @@ class GpsNav:
 
     def __init__(self, graphml_path=None, geofence=None,
                  fix_stale_secs=4.0, junction_radius_m=12.0,
-                 turn_threshold_deg=30.0, arrive_radius_m=8.0):
+                 turn_threshold_deg=30.0, arrive_radius_m=8.0,
+                 destination=None):
         """
         :param graphml_path: campus graph from build_campus_graph.py (optional —
                without it there's no routing, but tracking + geofence still work)
         :param geofence: [(lat, lon), ...] polygon; None disables (nav/safe then
                only reflects fix freshness)
+
+        :param destination: (lat, lon) to drive to, or None to sit idle until
+               something calls set_destination(). Routing needs a CURRENT
+               position, and there is no fix for the first 30 s or more after
+               boot, so a destination given here is held and resolved into a
+               route as soon as the first fix arrives.
 
         Defaults are sized for a NEO-6M, which is GPS-only (no GLONASS or
         Galileo) and updates at 1 Hz out of the box — so expect roughly 3-7 m
@@ -96,6 +103,12 @@ class GpsNav:
         self._lock = threading.Lock()
         self.running = True
 
+        # held until the first fix; see set_destination's position requirement
+        self._pending_destination = destination
+        self._last_route_attempt = 0.0
+        if destination:
+            logger.info("destination pending first GPS fix: %s", destination)
+
     # ---------- routing ----------
 
     def _node_latlon(self, node):
@@ -107,10 +120,22 @@ class GpsNav:
                    key=lambda n: haversine_m(lat, lon, *self._node_latlon(n)))
 
     def set_destination(self, dest_lat, dest_lon):
-        """Compute a route from current position. Called by the app layer."""
+        """
+        Compute a route from the current position to (dest_lat, dest_lon).
+
+        Requires a live fix, since the route starts wherever we are. If none is
+        available yet the destination is queued and retried automatically once
+        the receiver locks on.
+        """
         fix = self._fix
-        if self.graph is None or fix is None:
-            logger.warning("cannot route: no graph or no fix")
+        if self.graph is None:
+            logger.error("cannot route: no campus graph loaded "
+                         "(set CAMPUS_GRAPHML and copy the graphml to the Pi)")
+            return False
+        if fix is None:
+            logger.info("no fix yet; holding destination %s until one arrives",
+                        (dest_lat, dest_lon))
+            self._pending_destination = (dest_lat, dest_lon)
             return False
         import networkx as nx
         src = self._nearest_node(fix[0], fix[1])
@@ -124,8 +149,20 @@ class GpsNav:
             self.route = [self._node_latlon(n) for n in path]
             self.route_index = 0
             self.arrived = False
-        logger.info("route set: %d waypoints", len(self.route))
+        self._pending_destination = None
+        logger.info("route set: %d waypoints to %s",
+                    len(self.route), (dest_lat, dest_lon))
         return True
+
+    def _resolve_pending(self):
+        """Turn a queued destination into a route once a fix exists."""
+        if not self._pending_destination or self._fix is None:
+            return
+        now = time.monotonic()
+        if now - self._last_route_attempt < 5.0:
+            return  # routing walks every graph node; don't do it every tick
+        self._last_route_attempt = now
+        self.set_destination(*self._pending_destination)
 
     def _junction_command(self, lat, lon):
         """LEFT/STRAIGHT/RIGHT when close to the next waypoint, else None."""
@@ -203,6 +240,7 @@ class GpsNav:
     # ---------- part interface ----------
 
     def run_threaded(self):
+        self._resolve_pending()
         fix = self._fix  # single read; the poll thread may replace it at any time
         if fix is None:
             return 0.0, 0.0, None, False, self.arrived

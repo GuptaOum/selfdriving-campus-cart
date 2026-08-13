@@ -311,6 +311,7 @@ nav._fix, nav.geofence, nav.fix_stale_secs = None, None, 3.0
 nav.route, nav.route_index, nav.arrived = [], 0, False
 nav._lock = threading.Lock()
 nav.junction_radius_m, nav.turn_threshold_deg, nav.arrive_radius_m = 8.0, 30.0, 5.0
+nav.graph, nav._pending_destination, nav._last_route_attempt = None, None, 0.0
 
 check("no fix -> unsafe", not nav.run_threaded()[3])
 
@@ -323,6 +324,30 @@ check("fresh fix inside fence -> safe", nav.run_threaded()[3])
 
 nav._fix = (26.495, 73.115, time.monotonic())
 check("outside fence -> unsafe", not nav.run_threaded()[3])
+
+# a destination given before the receiver locks on must be held, not dropped
+nav2 = GpsNav.__new__(GpsNav)
+nav2._fix, nav2.geofence, nav2.fix_stale_secs = None, None, 4.0
+nav2.route, nav2.route_index, nav2.arrived = [], 0, False
+nav2._lock = threading.Lock()
+nav2.junction_radius_m, nav2.turn_threshold_deg, nav2.arrive_radius_m = 12.0, 30.0, 8.0
+nav2._last_route_attempt, nav2._pending_destination = 0.0, None
+nav2.graph = object()            # graph loaded, but the receiver has no fix yet
+
+check("destination with no fix is queued, not lost",
+      nav2.set_destination(26.47, 73.11) is False
+      and nav2._pending_destination == (26.47, 73.11))
+
+nav2._resolve_pending()          # still no fix: must not crash, must stay queued
+check("queued destination survives having no fix",
+      nav2._pending_destination == (26.47, 73.11))
+
+# with no graph at all, routing can never succeed, so queueing would be a lie
+nav3 = GpsNav.__new__(GpsNav)
+nav3.graph, nav3._pending_destination, nav3._fix = None, None, None
+check("no graph -> refuses outright rather than queueing forever",
+      nav3.set_destination(26.47, 73.11) is False
+      and nav3._pending_destination is None)
 
 check("point_in_polygon inside", point_in_polygon(26.475, 73.115, FENCE))
 check("point_in_polygon outside", not point_in_polygon(26.490, 73.115, FENCE))
