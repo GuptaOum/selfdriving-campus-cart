@@ -74,9 +74,32 @@
 <script>
 const map = L.map('map', { zoomControl: false }).setView([26.4725, 73.1140], 17);
 L.control.zoom({ position: 'topright' }).addTo(map);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '&copy; OpenStreetMap'
-}).addTo(map);
+
+// Satellite is the default because OSM's coverage of Indian campus interiors
+// is patchy — internal paths are often unmapped, and you cannot drop a
+// sensible pin on a blank rectangle. Imagery shows the actual footpaths.
+//
+// Deliberately NOT Google tiles: pulling mt{s}.google.com tiles into Leaflet
+// breaks Google's terms of service. Doing it properly means their JS SDK, an
+// API key and a billing account, for imagery Esri gives us free. If you do
+// want Google, use their Maps JavaScript API rather than a tile URL.
+const satellite = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 19, attribution: 'Imagery &copy; Esri' });
+
+const labels = L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+  { maxZoom: 19, opacity: 0.8 });
+
+const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  { maxZoom: 19, attribution: '&copy; OpenStreetMap' });
+
+const hybrid = L.layerGroup([satellite, labels]).addTo(map);
+
+L.control.layers(
+  { 'Satellite': hybrid, 'Streets': streets },
+  {}, { position: 'topright', collapsed: true }
+).addTo(map);
 
 const cartIcon = L.divIcon({
   className: '',

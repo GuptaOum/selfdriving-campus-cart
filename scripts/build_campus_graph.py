@@ -1,8 +1,31 @@
 #!/usr/bin/env python3
 """
 Build the campus routing graph from OpenStreetMap. Run on your LAPTOP once
-(needs internet + osmnx); copy the output graphml to the Pi. The Pi only
-needs networkx to read it (see mycar/parts/gps_nav.py).
+(needs internet + osmnx); copy the output graphml to the EC2 MISSION SERVER,
+which does the routing. The Pi never sees it.
+
+WHY NOT GOOGLE DIRECTIONS API
+-----------------------------
+Google returns an encoded polyline meant for a human following turn-by-turn
+directions on public roads. Here we need a GRAPH WE OWN, because a campus cart
+has constraints Google knows nothing about:
+
+  * a path with a speed breaker too tall for the chassis -> delete that edge
+  * a service road the cart may not use -> delete that edge
+  * a shortcut through a building gate that OSM lacks -> add that edge
+  * route again after any of the above, offline, in milliseconds
+
+You cannot express "this path is impassable for MY vehicle" to the Directions
+API, and campus interior paths are frequently absent from its routing network
+anyway. Owning the graphml also means no API key, no per-request billing, and
+no internet dependency at dispatch time.
+
+Google imagery is still the better thing to LOOK at while placing pins — the
+app uses satellite tiles for exactly that reason. Tiles and routing are
+separate decisions.
+
+To prune or extend the graph afterwards, load it with networkx and use
+remove_edge / add_edge, then save it back with nx.write_graphml.
 
 Usage:
     pip install osmnx
@@ -40,7 +63,13 @@ def main():
     G = ox.convert.to_undirected(G)
     ox.save_graphml(G, OUT)
     print(f"Wrote {OUT}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
-    print("Copy it to the Pi and set CAMPUS_GRAPHML in myconfig.py")
+    print("Copy it to the EC2 mission server:")
+    print(f"  scp {OUT} ec2-user@<host>:~/campus-cart/")
+    print("  python server/app.py --graph campus_graph.graphml")
+    print("\nCheck the coverage before trusting it — OSM often misses campus")
+    print("interior footpaths. Compare against the satellite view in the app;")
+    print("any path the cart should use but the graph lacks must be added, or")
+    print("routing will detour around it.")
 
 
 if __name__ == "__main__":
