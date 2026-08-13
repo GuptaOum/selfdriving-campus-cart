@@ -962,13 +962,13 @@ def add_campus_autonomy(V, cfg):
             'yolo/stop', 'yolo/slow', 'yolo/healthy',
             'breaker/active', 'nav/safe', 'nav/arrived', 'nav/command',
             'gps/lat', 'gps/lon', 'mission/route',
-            'seg/mask', 'yolo/boxes',
+            'seg/mask', 'yolo/boxes', 'sonar/scan',
             'plan/angle', 'plan/throttle', 'plan/clear', 'plan/distance_m']
     V.mem.put(keys, [0.0, 0.0, False,
                      False, 0.0, True,
                      False, False, True,
                      False, False, False, None, 0.0, 0.0, None,
-                     None, None,
+                     None, None, None,
                      None, None, False, 0.0])
 
     have_sonar = getattr(cfg, 'HAVE_ULTRASONIC', False)
@@ -980,7 +980,8 @@ def add_campus_autonomy(V, cfg):
                                 stop_cm=cfg.SONAR_STOP_CM,
                                 caution_cm=cfg.SONAR_CAUTION_CM)
         V.add(sonar, outputs=['sonar/left', 'sonar/center', 'sonar/right',
-                              'sonar/stop', 'sonar/bias', 'sonar/healthy'],
+                              'sonar/stop', 'sonar/bias', 'sonar/healthy',
+                              'sonar/scan'],
               threaded=True)
 
     # Mission client: polls the EC2 server for a route and reports position.
@@ -1055,7 +1056,7 @@ def add_campus_autonomy(V, cfg):
                 throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
                 throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16)),
               inputs=['seg/mask', 'seg/angle', 'seg/corridor_clear',
-                      'yolo/boxes', 'nav/command'],
+                      'yolo/boxes', 'nav/command', 'sonar/scan'],
               outputs=['plan/angle', 'plan/throttle', 'plan/clear',
                        'plan/distance_m'])
 

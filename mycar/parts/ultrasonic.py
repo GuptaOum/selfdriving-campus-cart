@@ -100,15 +100,39 @@ class UltrasonicArray:
     def __init__(self, pins, stop_cm=30.0, caution_cm=80.0, clear_count=5,
                  poll_hz=15.0, median_n=5, max_misses=4):
         """
-        :param pins: dict {'left': (trig, echo), 'center': ..., 'right': ...}
+        :param pins: dict of name -> (trig, echo) or (trig, echo, angle_deg).
+
+               The optional third element is the sensor's bearing: 0 is dead
+               ahead, POSITIVE IS LEFT (matching the planner's ground frame).
+               Supply angles and the array becomes a crude range scan the
+               LocalPlanner can drop straight into its occupancy grid — a
+               poor man's LiDAR, measured rather than inferred, for no CPU.
+               Without angles you still get the stop/bias safety layer.
+
+               A sensible fan for four sensors:
+                   {"left":   (5, 6, 30), "cleft":  (19, 26, 10),
+                    "cright": (20, 21, -10), "right": (16, 12, -30)}
+               Roughly 20 deg apart matches the ~15 deg beam width, so the
+               cones overlap slightly instead of leaving blind wedges.
+
         :param max_misses: consecutive non-responses before a sensor is declared
                dead. Small enough to catch a wire falling off mid-drive.
+
+        NOTE ON SENSOR COUNT: pings must be staggered or the sensors hear each
+        other, so a full sweep costs roughly (sensors x 65 ms). Three sweeps at
+        ~5 Hz; eight at ~2 Hz. More sensors buy angular coverage and cost
+        update rate — past about six the trade stops paying.
         """
         import pigpio
         self.pi = pigpio.pi()
         if not self.pi.connected:
             raise RuntimeError("pigpiod not running — sudo systemctl start pigpiod")
-        self.sensors = {name: _Sensor(self.pi, *te) for name, te in pins.items()}
+        self.sensors = {name: _Sensor(self.pi, spec[0], spec[1])
+                        for name, spec in pins.items()}
+        # bearing per sensor, degrees, positive left; absent -> straight ahead
+        self.angles = {name: (float(spec[2]) if len(spec) > 2 else 0.0)
+                       for name, spec in pins.items()}
+        self.has_angles = any(len(spec) > 2 for spec in pins.values())
         self.history = {name: [] for name in pins}
         self.misses = {name: 0 for name in pins}
         self.median_n = median_n
@@ -198,11 +222,28 @@ class UltrasonicArray:
         else:
             self.bias = 0.0
 
+    def scan(self):
+        """
+        [(bearing_deg, distance_m), ...] for every sensor that saw something.
+
+        Only real returns are included: a sensor reporting NOTHING_IN_RANGE is
+        omitted rather than reported as free space. Sound glances off angled
+        surfaces without coming back, so silence is not evidence of clear
+        ground — the planner may add obstacles from this, never remove them.
+        """
+        out = []
+        for name, d in self.dist.items():
+            if d is None or d is NOTHING_IN_RANGE:
+                continue
+            out.append((self.angles.get(name, 0.0), d / 100.0))
+        return out
+
     def run_threaded(self):
         def out(v):
             return None if v is NOTHING_IN_RANGE else v
         return (out(self.dist.get("left")), out(self.dist.get("center")),
-                out(self.dist.get("right")), self.stop, self.bias, self.healthy)
+                out(self.dist.get("right")), self.stop, self.bias,
+                self.healthy, self.scan())
 
     def shutdown(self):
         self.running = False

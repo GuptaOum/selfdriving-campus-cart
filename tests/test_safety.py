@@ -231,6 +231,8 @@ arr.stop_cm, arr.caution_cm = 30.0, 80.0
 arr.clear_count, arr._clear_streak = 5, 0
 arr.dist = {n: None for n in NAMES}
 arr.stop, arr.healthy, arr.bias = True, False, 0.0
+arr.angles = {"left": 30.0, "center": 0.0, "right": -30.0}
+arr.has_angles = True
 arr._last_unhealthy_log = 0.0
 
 
@@ -540,6 +542,60 @@ sL, _, _ = planner.plan(open_path(width_m=3.0), goal_bias=-0.6)
 planner._prev_steer = 0.0
 sR, _, _ = planner.plan(open_path(width_m=3.0), goal_bias=0.6)
 check("junction bias shifts the chosen arc", sL < sR, f"L={sL:+.2f} R={sR:+.2f}")
+
+
+# =====================================================================
+section("sonar fused into the planner grid")
+# =====================================================================
+# Four HC-SR04s are a crude range scan. They cannot see a scene the way a
+# depth model can, but what they DO report is measured rather than inferred,
+# and it costs no CPU — which on a 2 GB Pi is the deciding argument.
+
+sp = make_planner()
+
+# scan() must report only real returns. Silence is not evidence of clear
+# ground: sound glances off angled surfaces and never comes back.
+arr.dist = {"left": NOTHING_IN_RANGE, "center": 60.0, "right": None}
+scan = arr.scan()
+check("scan reports only measured returns", scan == [(0.0, 0.6)], f"{scan}")
+
+arr.dist = {"left": 80.0, "center": 60.0, "right": 100.0}
+scan = arr.scan()
+check("scan carries bearing and metres",
+      sorted(scan) == [(-30.0, 1.0), (0.0, 0.6), (30.0, 0.8)], f"{scan}")
+
+# a return dead ahead must block the straight arc even on a mask that claims
+# the path is completely clear — this is the case where vision is wrong and
+# the sonar is right
+clear_grid = open_path(width_m=2.0)
+sp._prev_steer = 0.0
+_, clear_before, _ = sp.plan(sp.inflate(clear_grid), goal_bias=0.0)
+blocked = sp.inflate(clear_grid, sp.sonar_to_grid([(0.0, 0.8)]))
+sp._prev_steer = 0.0
+steer_after, clear_after, _ = sp.plan(blocked, goal_bias=0.0)
+check("sonar return blocks a path vision called clear",
+      clear_after < clear_before, f"{clear_after:.1f}m vs {clear_before:.1f}m")
+
+# one reading is an ARC, not a point: the sensor cannot say where in its beam
+# the echo came from, so the whole cone must be treated as occupied
+cone = sp.sonar_to_grid([(0.0, 1.0)], beam_deg=15.0)
+row = int((sp.horizon_m - 1.0) / sp.res)
+width = int(cone[row - 1:row + 2].sum(axis=0).astype(bool).sum())
+check("a return marks the whole beam cone, not one cell", width >= 4,
+      f"{width} cells wide")
+
+# out-of-range and nonsense readings are dropped rather than drawn somewhere
+check("readings past the horizon are ignored",
+      sp.sonar_to_grid([(0.0, 99.0)]).sum() == 0)
+check("non-positive readings are ignored",
+      sp.sonar_to_grid([(0.0, 0.0)]).sum() == 0)
+
+# an angled return blocks the side it came from, not the centre
+side = sp.sonar_to_grid([(30.0, 1.0)])
+left_half = side[:, :sp.cols // 2].sum()
+right_half = side[:, sp.cols // 2:].sum()
+check("a left-bearing return marks the left side",
+      left_half > right_half, f"L={left_half} R={right_half}")
 
 
 # =====================================================================

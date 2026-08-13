@@ -150,6 +150,44 @@ class LocalPlanner:
         blocked = cv2.dilate(blocked, self._inflate_kernel)
         return (1 - blocked).astype(np.uint8)
 
+    def sonar_to_grid(self, scan, beam_deg=15.0):
+        """
+        Ultrasonic returns -> blocked cells.
+
+        This is the most trustworthy input the planner gets. The mask comes
+        from a neural network and then through a homography; a sonar return is
+        a measured time of flight. Where they disagree about something 60 cm
+        ahead, the sonar is right.
+
+        Each return is drawn as an ARC, not a point. A HC-SR04 reports "an
+        echo came back from 0.6 m" but cannot say where in its ~15 degree beam
+        the reflector was, so the honest representation of one reading is the
+        whole arc at that radius. Marking a single point would leave the cart
+        confidently steering into the part of the cone it never actually
+        cleared.
+
+        :param scan: [(bearing_deg, distance_m), ...] from UltrasonicArray.scan()
+        """
+        extra = np.zeros((self.rows, self.cols), np.uint8)
+        if not scan:
+            return extra
+        for bearing_deg, dist_m in scan:
+            if dist_m <= 0 or dist_m > self.horizon_m:
+                continue
+            half = math.radians(beam_deg) / 2.0
+            centre = math.radians(bearing_deg)
+            # step fine enough that adjacent samples land in touching cells
+            steps = max(3, int(dist_m * math.radians(beam_deg) / self.res) + 1)
+            for i in range(steps):
+                a = centre - half + (2 * half) * i / (steps - 1)
+                x = dist_m * math.cos(a)
+                y = dist_m * math.sin(a)
+                row = int((self.horizon_m - x) / self.res)
+                col = int((self.lateral_m - y) / self.res)
+                if 0 <= row < self.rows and 0 <= col < self.cols:
+                    extra[row, col] = 1
+        return extra
+
     def boxes_to_grid(self, boxes, image_shape):
         """
         Project detection boxes onto the ground and mark them blocked.
@@ -238,14 +276,20 @@ class LocalPlanner:
     # ---------- part interface ----------
 
     def run(self, mask=None, seg_angle=0.0, corridor_clear=False,
-            boxes=None, nav_command=None):
+            boxes=None, nav_command=None, sonar_scan=None):
         if not self.enabled or mask is None:
             # planner off or no perception: pass seg_pilot's decision through
             return seg_angle or 0.0, 0.0, bool(corridor_clear), 0.0
 
         try:
             grid = self.build_grid(mask)
-            extra = self.boxes_to_grid(boxes, mask.shape) if boxes else None
+            extra = np.zeros((self.rows, self.cols), np.uint8)
+            if boxes:
+                extra |= self.boxes_to_grid(boxes, mask.shape)
+            if sonar_scan:
+                # measured beats inferred: these are time-of-flight readings,
+                # not a network's opinion projected through a homography
+                extra |= self.sonar_to_grid(sonar_scan)
             grid = self.inflate(grid, extra)
         except cv2.error:
             logger.exception("grid build failed — falling back to seg steering")

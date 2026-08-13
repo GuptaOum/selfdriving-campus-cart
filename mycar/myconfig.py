@@ -806,7 +806,22 @@ YOLO_IMGSZ = 320
 # MOUNT >= 10-12 cm high, aimed level, so ~6 cm speed breakers stay below the
 # beam — low-mounted sensors would hard-stop at every breaker forever.
 HAVE_ULTRASONIC = False
-ULTRASONIC_PINS = {"left": (5, 6), "center": (19, 26), "right": (20, 21)}  # (trig, echo)
+# (trig, echo) or (trig, echo, bearing_deg). Bearing: 0 = dead ahead,
+# POSITIVE IS LEFT. Supply bearings and the array becomes a crude range scan
+# that feeds straight into the LocalPlanner's occupancy grid — measured
+# obstacle positions, for zero CPU. That is the cheapest perception you own.
+#
+# Three sensors (the minimum):
+# ULTRASONIC_PINS = {"left": (5, 6, 25), "center": (19, 26, 0), "right": (20, 21, -25)}
+#
+# Four (recommended — ~20 deg apart so the ~15 deg beams overlap slightly
+# rather than leaving blind wedges between them):
+ULTRASONIC_PINS = {"left":   (5, 6, 30),  "cleft":  (19, 26, 10),
+                   "cright": (20, 21, -10), "right": (16, 12, -30)}
+#
+# A full sweep costs about (sensors x 65 ms) because pings must be staggered
+# or the sensors hear each other: 4 sensors ~= 4 Hz, 8 ~= 2 Hz. More sensors
+# buy angular coverage and cost update rate; past six it stops paying.
 SONAR_STOP_CM = 30.0            # any sensor closer -> hard throttle cut
 SONAR_CAUTION_CM = 80.0         # center closer -> creep + steer to open side
 
