@@ -342,6 +342,38 @@ nav2._resolve_pending()          # still no fix: must not crash, must stay queue
 check("queued destination survives having no fix",
       nav2._pending_destination == (26.47, 73.11))
 
+# A route arrives from the EC2 server already computed, so no graph or
+# networkx is needed on the Pi at all.
+# park the cart well away from every waypoint, so waypoint-advance logic does
+# not consume the first one and muddy what these assertions are measuring
+nav2._fix = (26.460, 73.100, time.monotonic())
+nav2._pending_destination, nav2._route_key = None, None
+nav2.route, nav2.route_index, nav2.arrived = [], 3, True
+
+ROUTE_A = [[26.470, 73.110], [26.475, 73.115], [26.480, 73.120]]
+nav2.run_threaded(route=ROUTE_A)
+check("server route is adopted", len(nav2.route) == 3)
+check("adopting a route resets progress",
+      nav2.route_index == 0 and nav2.arrived is False)
+
+nav2.route_index = 2                              # pretend we drove some of it
+nav2.run_threaded(route=ROUTE_A)                  # same route republished
+check("repeated route does not restart the run", nav2.route_index == 2)
+
+ROUTE_B = [[26.470, 73.110], [26.490, 73.130]]
+nav2.run_threaded(route=ROUTE_B)
+check("a different route replaces the old one",
+      len(nav2.route) == 2 and nav2.route_index == 0)
+
+# This is the one that matters operationally: losing the server mid-delivery
+# must not strand the cart. The route is already local.
+nav2.route_index = 1
+nav2.run_threaded(route=None)
+check("server going away leaves the route running",
+      len(nav2.route) == 2 and nav2.route_index == 1)
+
+check("a degenerate route is refused", nav2.set_route([[26.47, 73.11]]) is False)
+
 # with no graph at all, routing can never succeed, so queueing would be a lie
 nav3 = GpsNav.__new__(GpsNav)
 nav3.graph, nav3._pending_destination, nav3._fix = None, None, None

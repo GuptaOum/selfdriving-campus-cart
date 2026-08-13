@@ -961,11 +961,11 @@ def add_campus_autonomy(V, cfg):
             'sonar/stop', 'sonar/bias', 'sonar/healthy',
             'yolo/stop', 'yolo/slow', 'yolo/healthy',
             'breaker/active', 'nav/safe', 'nav/arrived', 'nav/command',
-            'gps/lat', 'gps/lon']
+            'gps/lat', 'gps/lon', 'mission/route']
     V.mem.put(keys, [0.0, 0.0, False,
                      False, 0.0, True,
                      False, False, True,
-                     False, False, False, None, 0.0, 0.0])
+                     False, False, False, None, 0.0, 0.0, None])
 
     have_sonar = getattr(cfg, 'HAVE_ULTRASONIC', False)
     have_yolo = getattr(cfg, 'HAVE_YOLO_GUARD', False)
@@ -979,6 +979,21 @@ def add_campus_autonomy(V, cfg):
                               'sonar/stop', 'sonar/bias', 'sonar/healthy'],
               threaded=True)
 
+    # Mission client: polls the EC2 server for a route and reports position.
+    # It can only publish a ROUTE — never steering, throttle, or a geofence
+    # decision. Everything with a deadline stays on this box, so the cart
+    # finishes its delivery whether or not the server is reachable.
+    if getattr(cfg, 'HAVE_MISSION_CLIENT', False):
+        from parts.mission_client import MissionClient
+        V.add(MissionClient(server_url=cfg.MISSION_SERVER_URL,
+                            cart_id=getattr(cfg, 'CART_ID', 'cart-1'),
+                            token=getattr(cfg, 'MISSION_TOKEN', None),
+                            poll_secs=getattr(cfg, 'MISSION_POLL_SECS', 3.0)),
+              inputs=['gps/lat', 'gps/lon', 'nav/safe', 'nav/arrived',
+                      'seg/corridor_clear', 'sonar/stop', 'user/mode'],
+              outputs=['mission/route'],
+              threaded=True)
+
     if getattr(cfg, 'HAVE_GPS_NAV', False):
         from parts.gps_nav import GpsNav
         nav = GpsNav(graphml_path=getattr(cfg, 'CAMPUS_GRAPHML', None),
@@ -987,8 +1002,9 @@ def add_campus_autonomy(V, cfg):
                      arrive_radius_m=getattr(cfg, 'GPS_ARRIVE_RADIUS_M', 8.0),
                      fix_stale_secs=getattr(cfg, 'GPS_FIX_STALE_SECS', 4.0),
                      destination=getattr(cfg, 'MISSION_DESTINATION', None))
-        V.add(nav, outputs=['gps/lat', 'gps/lon', 'nav/command',
-                            'nav/safe', 'nav/arrived'], threaded=True)
+        V.add(nav, inputs=['mission/route'],
+              outputs=['gps/lat', 'gps/lon', 'nav/command',
+                       'nav/safe', 'nav/arrived'], threaded=True)
 
     if getattr(cfg, 'HAVE_BREAKER_DETECT', True):
         from parts.breaker_detect import BreakerDetect

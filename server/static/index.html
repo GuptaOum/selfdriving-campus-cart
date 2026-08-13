@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12161b">
+<title>Campus Cart</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --ground: #12161b; --panel: #1b2128; --line: #2b333c;
+    --ink: #e8edf2; --ink-dim: #93a0ac;
+    --ok: #35b88f; --warn: #e0a33a; --bad: #e0644a; --accent: #4a9ce0;
+    --mono: ui-monospace, "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--ground); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  #map { flex: 1; min-height: 0; background: var(--ground); }
+
+  .panel {
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+    padding: 4px 9px; border-radius: 3px; border: 1px solid var(--line);
+    color: var(--ink-dim); white-space: nowrap;
+  }
+  .chip.ok   { color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+  .chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+  .chip.bad  { color: var(--bad);  border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+
+  .hint { font-size: 13px; color: var(--ink-dim); }
+  .hint b { color: var(--ink); font-weight: 600; }
+
+  .row { display: flex; gap: 8px; }
+  button {
+    flex: 1; font: inherit; font-weight: 600; font-size: 15px;
+    padding: 12px; border-radius: 4px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  button:disabled { opacity: .4; cursor: default; }
+  button.go { background: var(--accent); border-color: var(--accent); color: #07121c; }
+  button.stop { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+  button:not(:disabled):active { transform: translateY(1px); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .leaflet-container { background: #0d1116; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="panel">
+  <div class="chips" id="chips"></div>
+  <div class="hint" id="hint">Connecting…</div>
+  <div class="row">
+    <button class="go" id="go" disabled>Send cart here</button>
+    <button class="stop" id="cancel" disabled>Stop</button>
+  </div>
+</div>
+
+<script>
+const map = L.map('map', { zoomControl: false }).setView([26.4725, 73.1140], 17);
+L.control.zoom({ position: 'topright' }).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+const cartIcon = L.divIcon({
+  className: '',
+  html: '<div style="width:18px;height:18px;border-radius:50%;background:#4a9ce0;' +
+        'border:3px solid #fff;box-shadow:0 0 0 2px rgba(74,156,224,.4)"></div>',
+  iconSize: [18, 18], iconAnchor: [9, 9]
+});
+
+let cartMarker = null, pinMarker = null, pin = null, centred = false;
+
+// The token is kept in this browser only, never baked into the page —
+// the page is served publicly, the token must not be.
+let TOKEN = localStorage.getItem('cartToken') || '';
+function authHeaders(extra) {
+  return Object.assign(TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {},
+                       extra || {});
+}
+if (!TOKEN) {
+  const t = prompt('Access token for this cart server:');
+  if (t) { TOKEN = t; localStorage.setItem('cartToken', t); }
+}
+
+let routeLine = null;
+
+map.on('click', e => {
+  pin = [e.latlng.lat, e.latlng.lng];
+  if (pinMarker) pinMarker.setLatLng(e.latlng);
+  else pinMarker = L.marker(e.latlng).addTo(map);
+  document.getElementById('go').disabled = false;
+  setHint('Pin dropped at <b>' + pin[0].toFixed(5) + ', ' + pin[1].toFixed(5) +
+          '</b>. Send the cart when ready.');
+});
+
+function setHint(html) { document.getElementById('hint').innerHTML = html; }
+
+function chip(label, cls) {
+  return '<span class="chip ' + (cls || '') + '">' + label + '</span>';
+}
+
+function render(s) {
+  let html = '';
+  // "online" is the server's judgement on telemetry age. A cart that stopped
+  // reporting is NOT a cart parked where its last message said it was.
+  if (!s.online) html += chip('CART OFFLINE', 'bad');
+  html += s.has_fix ? chip('GPS FIX', 'ok') : chip('NO GPS FIX', 'bad');
+  html += s.mode === 'user' ? chip('MANUAL (RC)', 'warn') : chip('AUTONOMOUS', 'ok');
+  if (s.sonar_stop)      html += chip('OBSTACLE STOP', 'bad');
+  if (!s.corridor_clear) html += chip('NO PATH', 'warn');
+  if (!s.safe)           html += chip('GEOFENCE/FIX UNSAFE', 'bad');
+  if (s.arrived)         html += chip('ARRIVED', 'ok');
+  if (s.mission_id)      html += chip('MISSION ' + s.mission_id, 'ok');
+  document.getElementById('chips').innerHTML = html;
+
+  document.getElementById('cancel').disabled = !s.mission_id;
+
+  if (s.has_fix) {
+    const ll = [s.lat, s.lon];
+    if (cartMarker) cartMarker.setLatLng(ll);
+    else cartMarker = L.marker(ll, { icon: cartIcon }).addTo(map);
+    if (!centred) { map.setView(ll, 18); centred = true; }
+  }
+
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  if (s.route && s.route.length > 1) {
+    routeLine = L.polyline(s.route, { color: '#4a9ce0', weight: 4,
+                                      opacity: 0.7 }).addTo(map);
+  }
+
+  if (!s.online) {
+    setHint('No contact with the cart for ' + (s.age_secs ?? '?') + ' s. ' +
+            'It keeps driving the route it already has — the mission does not ' +
+            'depend on this connection.');
+  } else if (!s.has_fix) {
+    setHint('Waiting for a GPS fix. A cold start can take 30 s or more, and ' +
+            'never works indoors.');
+  } else if (s.destination) {
+    setHint('Driving to <b>' + s.destination[0].toFixed(5) + ', ' +
+            s.destination[1].toFixed(5) + '</b>.');
+  } else if (s.mode === 'user') {
+    setHint('Cart is in <b>manual</b> mode. Flip the transmitter to autonomous ' +
+            'before sending it anywhere.');
+  } else if (!pin) {
+    setHint('Tap the map to drop a pin.');
+  }
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/api/status', { headers: authHeaders() });
+    if (r.status === 401) {
+      localStorage.removeItem('cartToken');
+      setHint('Access token rejected. Reload to enter it again.');
+      document.getElementById('chips').innerHTML = chip('UNAUTHORIZED', 'bad');
+      return;
+    }
+    render(await r.json());
+  } catch (e) {
+    setHint('Cannot reach the mission server.');
+    document.getElementById('chips').innerHTML = chip('SERVER UNREACHABLE', 'bad');
+  }
+  setTimeout(poll, 1000);
+}
+poll();
+
+document.getElementById('go').onclick = async () => {
+  if (!pin) return;
+  const btn = document.getElementById('go');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/dispatch', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ lat: pin[0], lon: pin[1] })
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      // surface the server's actual reason: no fix, stale telemetry, or a
+      // pin with no route to it are all different problems
+      setHint('Could not dispatch: <b>' + (d.detail || r.status) + '</b>');
+      btn.disabled = false;
+      return;
+    }
+    setHint('Mission ' + d.mission_id + ' sent: <b>' + d.waypoints +
+            '</b> waypoints, <b>' + d.distance_m + ' m</b>.');
+  } catch (e) {
+    setHint('Dispatch failed — the server did not respond.');
+    btn.disabled = false;
+  }
+};
+
+document.getElementById('cancel').onclick = async () => {
+  await fetch('/api/cancel', { method: 'POST', headers: authHeaders() });
+  if (pinMarker) { map.removeLayer(pinMarker); pinMarker = null; }
+  pin = null;
+  document.getElementById('go').disabled = true;
+  setHint('Mission cancelled. Note the cart may take a moment to notice — ' +
+          'use the transmitter if you need it stopped now.');
+};
+</script>
+</body>
+</html>

@@ -64,8 +64,11 @@ hardware, no models and no Pi, and it asserts each row of the table above.
 | `mycar/parts/yolo_guard.py` | YOLOv8n NCNN pedestrian/obstacle guard |
 | `mycar/parts/ultrasonic.py` | pigpio HC-SR04 ×3, median filter, tiered stop |
 | `mycar/parts/breaker_detect.py` | classical-CV yellow/black stripe detector |
-| `mycar/parts/gps_nav.py` | gpsd + graphml routing, junction commands, geofence |
+| `mycar/parts/gps_nav.py` | gpsd, route following, junction commands, geofence |
+| `mycar/parts/mission_client.py` | polls EC2 for a route, reports position |
 | `mycar/parts/safety_arbiter.py` | priority merge → `pilot/angle`, `pilot/throttle` |
+| `server/app.py` | EC2: campus routing, mission state, operator API |
+| `server/static/index.html` | the phone app — drop a pin, watch the cart |
 | `scripts/export_models.py` | laptop/Colab: download + ONNX/INT8/NCNN export |
 | `scripts/build_campus_graph.py` | laptop: OSM campus graph → graphml |
 | `scripts/vision_bench.py` | Phase 1 go/no-go on recorded footage |
@@ -95,8 +98,10 @@ the laptop where you ran `export_models.py`:
 
 ```bash
 scp -r exported_models pi@raspberrypi.local:~/selfdriving-campus-cart/mycar/models/
-scp campus_graph.graphml pi@raspberrypi.local:~/selfdriving-campus-cart/mycar/
 ```
+
+The campus graphml goes to **EC2, not the Pi** — routing happens on the server
+now, so the Pi needs neither the graph nor networkx.
 
 Same for anything else gitignored: recorded `.mp4` footage, trained `.h5`
 models, and tub data all move by `scp`, never by `git push`.
@@ -107,7 +112,6 @@ Then confirm the paths line up with `myconfig.py`:
 mycar/models/exported_models/segformer_sidewalk_int8.onnx
 mycar/models/exported_models/segformer_labels.json
 mycar/models/exported_models/yolov8n_ncnn_model/
-mycar/campus_graph.graphml
 ```
 
 **Sanity-check before trusting anything**, on the Pi:
@@ -136,7 +140,7 @@ Copy `exported_models/` into `mycar/models/` on the Pi and
 
 - Raspberry Pi OS **Lite 64-bit**, headless. Enable zram, not SD swap.
 - `sudo apt install pigpiod gpsd && sudo systemctl enable --now pigpiod`
-- venv: `pip install onnxruntime ultralytics networkx` (+ existing donkeycar)
+- venv: `pip install -r requirements-pi.txt` (+ `pip install donkeycar[pi]`)
 - One process only — everything runs inside `manage.py`'s loop.
 - Check power: `vcgencmd get_throttled` must be `0x0`.
 
@@ -166,3 +170,48 @@ python scripts/vision_bench.py --video campus_walk.mp4 \
   marked impassable in the graph, not driven.
 - Calibrate `SEG_CORRIDOR_FRAC` after taping a 1 m grid and measuring how many
   pixels the (bot width + margin) corridor spans at the bottom image band.
+
+## Mission server (EC2) and the split that matters
+
+The phone app and the campus routing live on an EC2 box; the cart polls it.
+`server/app.py` is the whole server, `server/static/index.html` the whole app.
+
+**What goes where, and why:**
+
+| EC2 | Raspberry Pi |
+|---|---|
+| campus graph + networkx routing | steering, throttle |
+| the operator's map, mission state | obstacle stops, corridor test |
+| position history | **the geofence** |
+| latency-tolerant | everything with a deadline |
+
+**Nothing in the control loop crosses the network.** Campus WiFi to Mumbai and
+back is 50-200 ms on a good day and unbounded on a bad one — fine for "go to
+this pin", catastrophic for "stop". So a mission is handed over as a complete
+waypoint list, and the cart drives it alone. If the server dies mid-delivery
+the cart still finishes, because the route is already local. Losing a server
+must not strand a cart in a corridor.
+
+The geofence stays on the Pi for the same reason: it is fail-closed safety, and
+safety that depends on a reachable server is not safety.
+
+**The cart polls out.** Campus NAT blocks inbound connections, so an outbound
+poll is the only thing that works without asking IT for a port forward. It also
+means the Pi needs no public address at all.
+
+### Running it
+
+```bash
+# on EC2 — t4g.small is plenty
+pip install -r server/requirements.txt
+export CART_TOKEN="$(python -c 'import secrets;print(secrets.token_urlsafe(32))')"
+python server/app.py --graph campus_graph.graphml
+```
+
+Copy the graphml from `scripts/build_campus_graph.py` to the server, **not** to
+the Pi. On the Pi set `HAVE_MISSION_CLIENT = True`, `MISSION_SERVER_URL`, and
+`MISSION_TOKEN` to the same value as `CART_TOKEN`.
+
+The token is the only thing standing between the open internet and a moving
+vehicle. Put nginx with TLS in front before this is anything but a prototype,
+and keep the security group narrow.

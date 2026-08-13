@@ -16,10 +16,13 @@ opencv-python-headless # headless build: no GUI/Qt deps, meaningfully smaller
 pigpio                 # microsecond HC-SR04 edge timing (needs pigpiod running)
 pyserial               # FlySky iBUS receiver
 
-# --- only if HAVE_GPS_NAV = True ---
-networkx               # reads the campus graphml and runs shortest-path.
-                       # osmnx is NOT needed here — the graph is built on your
-                       # laptop and copied over as a file.
+# --- GPS ---
+# No networkx and no campus graph. Routing moved to the EC2 mission server,
+# which sends a finished waypoint list; the Pi only follows it. The mission
+# client uses urllib from the standard library, so it adds no dependency.
+#
+# The one exception: set CAMPUS_GRAPHML and MISSION_DESTINATION to do a local
+# A->B run with no server. That path alone needs `pip install networkx`.
 
 # --- only if HAVE_YOLO_GUARD = True ---
 #

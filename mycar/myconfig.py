@@ -819,13 +819,27 @@ SONAR_CAUTION_CM = 80.0         # center closer -> creep + steer to open side
 # Neither affects steering, which is vision-only. Draw the geofence with WIDE
 # margins regardless. No module fixes indoors; cold start takes 30 s or more.
 HAVE_GPS_NAV = False
-MISSION_DESTINATION = None      # (lat, lon) point B for an A->B run, e.g.
-                                # MISSION_DESTINATION = (26.4712, 73.1145)
-                                # Point A is wherever the cart is at start-up.
-                                # Held until the first fix, then routed over the
-                                # campus graph. None = idle; the cart drives
-                                # nowhere until something calls set_destination.
-                                # This is the stop-gap until the app exists.
+# -- mission client: link to the EC2 server (see server/app.py) ---------------
+# The server owns the campus graph, networkx and the operator's map; the Pi
+# just receives a finished waypoint list. That keeps ~50 MB and a dependency
+# off this box, and lets the phone reach a public IP instead of needing
+# Tailscale.
+#
+# The cart POLLS OUT: campus NAT blocks inbound connections, and an outbound
+# poll needs no port forwarding. Nothing in the control loop crosses the
+# network — if the server vanishes mid-delivery the cart finishes the route it
+# already holds, and the geofence stays local because safety that depends on a
+# reachable server is not safety.
+HAVE_MISSION_CLIENT = False
+MISSION_SERVER_URL = "https://your-ec2-host.compute.amazonaws.com"
+CART_ID = "cart-1"
+MISSION_TOKEN = None            # must match CART_TOKEN in the server's env
+MISSION_POLL_SECS = 3.0         # a human dropping a pin does not need faster
+
+# Local A->B without any server. Needs CAMPUS_GRAPHML on the Pi, which is why
+# it is only for testing; normally the server does the routing.
+MISSION_DESTINATION = None      # e.g. (26.4712, 73.1145). Point A is wherever
+                                # the cart starts. Held until the first fix.
 GPS_JUNCTION_RADIUS_M = 12.0    # distance to a waypoint that triggers L/R/straight
 GPS_ARRIVE_RADIUS_M = 8.0       # distance that counts as "waypoint reached"
 GPS_FIX_STALE_SECS = 4.0        # older fix than this -> nav/safe False (fail closed)

@@ -64,8 +64,10 @@ class GpsNav:
                  turn_threshold_deg=30.0, arrive_radius_m=8.0,
                  destination=None):
         """
-        :param graphml_path: campus graph from build_campus_graph.py (optional —
-               without it there's no routing, but tracking + geofence still work)
+        :param graphml_path: campus graph for LOCAL routing. Normally None:
+               the EC2 mission server owns the graph and sends a finished
+               waypoint list, so the Pi never loads networkx or a graphml at
+               all. Set it only to test A->B without a server.
         :param geofence: [(lat, lon), ...] polygon; None disables (nav/safe then
                only reflects fix freshness)
 
@@ -105,6 +107,7 @@ class GpsNav:
 
         # held until the first fix; see set_destination's position requirement
         self._pending_destination = destination
+        self._route_key = None
         self._last_route_attempt = 0.0
         if destination:
             logger.info("destination pending first GPS fix: %s", destination)
@@ -239,7 +242,40 @@ class GpsNav:
 
     # ---------- part interface ----------
 
-    def run_threaded(self):
+    def set_route(self, waypoints):
+        """
+        Adopt a route computed elsewhere (normally the EC2 mission server).
+
+        This is the usual path: the server owns the campus graph and networkx,
+        so the Pi never loads either. Local routing via set_destination stays
+        available for testing without a server.
+        """
+        route = [(float(a), float(b)) for a, b in waypoints]
+        if len(route) < 2:
+            logger.error("refusing a route with %d waypoints", len(route))
+            return False
+        with self._lock:
+            self.route = route
+            self.route_index = 0
+            self.arrived = False
+        self._pending_destination = None
+        logger.info("route adopted: %d waypoints, ending at %s",
+                    len(route), route[-1])
+        return True
+
+    def run_threaded(self, route=None):
+        """
+        :param route: [[lat, lon], ...] from the mission server, or None. A new
+               route replaces the current one; the same route repeated is
+               ignored, so the client can republish it every tick. None leaves
+               the current route running — a server that goes away must not
+               strand a cart mid-delivery, since the route is already local.
+        """
+        if route:
+            key = (route[0], route[-1], len(route))
+            if key != self._route_key:
+                self._route_key = key
+                self.set_route(route)
         self._resolve_pending()
         fix = self._fix  # single read; the poll thread may replace it at any time
         if fix is None:

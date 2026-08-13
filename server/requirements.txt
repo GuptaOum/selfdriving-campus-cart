@@ -1,0 +1,6 @@
+# EC2 mission server. None of this is installed on the Pi — that is the point
+# of the split: the graph and networkx live here, the cart stays light.
+fastapi
+uvicorn[standard]
+pydantic
+networkx        # shortest-path over the campus graph
