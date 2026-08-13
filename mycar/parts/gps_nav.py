@@ -60,13 +60,21 @@ class GpsNav:
     """
 
     def __init__(self, graphml_path=None, geofence=None,
-                 fix_stale_secs=3.0, junction_radius_m=8.0,
-                 turn_threshold_deg=30.0, arrive_radius_m=5.0):
+                 fix_stale_secs=4.0, junction_radius_m=12.0,
+                 turn_threshold_deg=30.0, arrive_radius_m=8.0):
         """
         :param graphml_path: campus graph from build_campus_graph.py (optional —
                without it there's no routing, but tracking + geofence still work)
         :param geofence: [(lat, lon), ...] polygon; None disables (nav/safe then
                only reflects fix freshness)
+
+        Defaults are sized for a NEO-6M, which is GPS-only (no GLONASS or
+        Galileo) and updates at 1 Hz out of the box — so expect roughly 3-7 m
+        of error rather than the 2.5 m a multi-constellation NEO-M8N manages.
+        The radii are therefore generous: a junction_radius smaller than your
+        position error means the command fires at the wrong place, or not at
+        all. Widen them further if your survey shows poor fixes; none of this
+        affects steering, which is vision-only.
         """
         self.geofence = geofence
         self.fix_stale_secs = fix_stale_secs

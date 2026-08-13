@@ -1019,7 +1019,8 @@ def add_campus_autonomy(V, cfg):
         creep_throttle=getattr(cfg, 'ARBITER_CREEP_THROTTLE', 0.14),
         mission_requires_gps=getattr(cfg, 'MISSION_REQUIRES_GPS', False),
         require_sonar=have_sonar,   # only demand health from layers that exist
-        require_yolo=have_yolo)
+        require_yolo=have_yolo,
+        min_move_throttle=getattr(cfg, 'ARBITER_MIN_MOVE_THROTTLE', 0.0))
     V.add(arbiter,
           inputs=['seg/angle', 'seg/throttle', 'seg/corridor_clear',
                   'sonar/stop', 'sonar/bias', 'sonar/healthy',

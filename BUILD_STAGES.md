@@ -104,6 +104,26 @@ donkey calibrate --channel 0 --bus 1   # throttle: find stop/fwd/rev pulse value
 Put the measured numbers into `PWM_STEERING_THROTTLE` in `myconfig.py` — the
 values currently in `config.py` are **placeholders and will not work**.
 
+### Measure the motor's minimum usable throttle (A2212 + plane ESC)
+
+An A2212 is a sensorless outrunner, and a plane ESC drives it by guessing rotor
+position from back-EMF. At low throttle there is barely any back-EMF, so it
+**cogs, stutters, or refuses to start** — exactly the regime a slow campus cart
+wants to live in. Find the real floor before trusting any "creep" setting:
+
+- [ ] Wheels off the ground. Raise throttle from 0 in small steps.
+- [ ] Note the lowest value where rotation is smooth **and self-starting from
+      rest** (a motor that keeps spinning once nudged but won't start on its own
+      is below the floor — the cart will stall after every stop).
+- [ ] Put that value, slightly rounded up, in `ARBITER_MIN_MOVE_THROTTLE`.
+- [ ] If the floor lands above ~0.3, your slowest speed may be too fast for
+      comfort. The 2:1 spur reduction already helps; beyond that the honest
+      fixes are a sensored car ESC or more gear reduction, not software.
+
+Note also that plane ESCs usually have **no reverse** and need an arming
+sequence (throttle at minimum for a second or two at power-up) before they
+respond at all.
+
 **GATE 1** — wheels **off the ground**, then on the ground:
 - [ ] `python manage.py drive` — RC sticks move servo and motor correctly
 - [ ] CH5 switch changes mode (`user` / `local_angle` / `local`) in the log

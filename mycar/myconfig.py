@@ -810,7 +810,11 @@ ULTRASONIC_PINS = {"left": (5, 6), "center": (19, 26), "right": (20, 21)}  # (tr
 SONAR_STOP_CM = 30.0            # any sensor closer -> hard throttle cut
 SONAR_CAUTION_CM = 80.0         # center closer -> creep + steer to open side
 
-# -- GPS navigation + geofence (NEO-M8N on USB via gpsd) ----------------------
+# -- GPS navigation + geofence (NEO-6M on USB-TTL via gpsd) -------------------
+# NEO-6M is GPS-only and 1 Hz by default: expect ~3-7 m error, not the 2.5 m of
+# a multi-constellation module. Junction/arrive radii in gps_nav.py are sized
+# for that. Draw the geofence with WIDE margins or it will false-trigger.
+# Cold start can take 30 s to several minutes, and it will never fix indoors.
 HAVE_GPS_NAV = False
 CAMPUS_GRAPHML = "campus_graph.graphml"   # from scripts/build_campus_graph.py
 GEOFENCE = None                 # [(lat, lon), ...] polygon; fail-closed when set
@@ -820,3 +824,11 @@ MISSION_REQUIRES_GPS = False    # True for outdoor A->B missions: no fix = stop.
 # -- misc ---------------------------------------------------------------------
 HAVE_BREAKER_DETECT = True      # classical-CV yellow/black stripe detector
 ARBITER_CREEP_THROTTLE = 0.14   # throttle while crossing a speed breaker
+
+# Throttle floor for a SENSORLESS brushless motor (A2212 + plane ESC). Below
+# some threshold it cogs, stutters, or does not spin at all, so a creep command
+# it cannot act on becomes a silent stall — the cart just sits there.
+# MEASURE IT: wheels off the ground, raise throttle from 0 until rotation is
+# smooth and self-starting, then set this slightly above that value.
+# 0.0 disables the floor. Zero throttle always stays zero.
+ARBITER_MIN_MOVE_THROTTLE = 0.0

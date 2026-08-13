@@ -360,6 +360,22 @@ angle, throttle = arb.run(**{**BASE, "sonar_bias": 0.5})
 check("sonar bias applied and clipped to 1.0",
       angle == 1.0 and throttle == 0.3, f"angle={angle}")
 
+# throttle floor for a sensorless brushless motor: lift commands it cannot act
+# on, but never turn a stop into motion
+arb_floor = SafetyArbiter(creep_throttle=0.10, mission_requires_gps=False,
+                          require_sonar=False, require_yolo=False,
+                          min_move_throttle=0.22)
+check("floor lifts a too-low creep",
+      arb_floor.run(**{**BASE, "breaker_active": True}) == (0.0, 0.22))
+check("floor lifts a halved slow command",
+      arb_floor.run(**{**BASE, "yolo_slow": True}) == (0.5, 0.22))
+check("floor leaves an adequate command alone",
+      arb_floor.run(**BASE) == (0.5, 0.3))
+check("floor never turns a stop into motion",
+      arb_floor.run(**{**BASE, "sonar_stop": True}) == (0.0, 0.0))
+check("floor never overrides a blocked corridor",
+      arb_floor.run(**{**BASE, "corridor_clear": False}) == (0.0, 0.0))
+
 arb_indoor = SafetyArbiter(mission_requires_gps=False,
                            require_sonar=False, require_yolo=False)
 check("indoor mode ignores GPS and absent layers",

@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 class SafetyArbiter:
 
     def __init__(self, creep_throttle=0.14, mission_requires_gps=False,
-                 require_sonar=True, require_yolo=False):
+                 require_sonar=True, require_yolo=False,
+                 min_move_throttle=0.0):
         """
         :param mission_requires_gps: True once you run GPS A->B missions —
                nav/safe False then stops the cart. Keep False for track tests
@@ -32,12 +33,26 @@ class SafetyArbiter:
                be unhealthy.
         :param require_yolo: stop when the detector is erroring or stalled.
                Enable once HAVE_YOLO_GUARD is True and you rely on it.
+        :param min_move_throttle: throttle floor for any NON-zero command.
+               A sensorless brushless motor (A2212 + plane ESC) will cog or
+               refuse to spin below some threshold, so a "creep" command it
+               cannot act on becomes a silent stall. Raise any non-zero
+               command up to this value; zero always stays zero, because a
+               stop must remain a stop. Measure the real threshold with the
+               wheels off the ground before setting it.
         """
         self.creep_throttle = creep_throttle
         self.mission_requires_gps = mission_requires_gps
         self.require_sonar = require_sonar
         self.require_yolo = require_yolo
+        self.min_move_throttle = min_move_throttle
         self._last_reason = None
+
+    def _floor(self, throttle):
+        """Lift a non-zero command above the motor's stall threshold."""
+        if 0.0 < throttle < self.min_move_throttle:
+            return self.min_move_throttle
+        return throttle
 
     def _log(self, reason):
         if reason != self._last_reason:
@@ -78,9 +93,9 @@ class SafetyArbiter:
             return 0.0, 0.0
         if breaker_active:
             self._log("BREAKER mode — straight + creep")
-            return 0.0, self.creep_throttle
+            return 0.0, self._floor(self.creep_throttle)
 
         throttle = seg_throttle * (0.5 if yolo_slow else 1.0)
         angle = max(-1.0, min(1.0, seg_angle + (sonar_bias or 0.0)))
         self._log("driving")
-        return angle, throttle
+        return angle, self._floor(throttle)
