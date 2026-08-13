@@ -1,0 +1,840 @@
+<title>Campus Cart — Build Stages</title>
+<style>
+  /* ---- tokens: light is the base, both dark paths redefine the same names ---- */
+  :root {
+    --ground:      #EDF0F3;
+    --surface:     #FFFFFF;
+    --surface-2:   #E3E8ED;
+    --ink:         #171C22;
+    --ink-2:       #4A5560;
+    --ink-3:       #77838F;
+    --rule:        #CFD7DF;
+    --rule-soft:   #E1E7EC;
+
+    --accent:      #B8770A;   /* signal amber — hazard tape, warning LED */
+    --accent-ink:  #8A5906;
+    --accent-wash: #FBF1DC;
+
+    --danger:      #B3341F;
+    --danger-wash: #FBE9E5;
+    --gate:        #17685C;
+    --gate-wash:   #E2F0ED;
+
+    --shadow: 0 1px 2px rgba(23,28,34,.06), 0 8px 24px rgba(23,28,34,.05);
+
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0F1317;
+      --surface:     #171C21;
+      --surface-2:   #1F262D;
+      --ink:         #E6ECF2;
+      --ink-2:       #A9B5C0;
+      --ink-3:       #77848F;
+      --rule:        #2C353D;
+      --rule-soft:   #232B32;
+
+      --accent:      #E8A93C;
+      --accent-ink:  #F2BC5C;
+      --accent-wash: #2A2113;
+
+      --danger:      #E87259;
+      --danger-wash: #2C1815;
+      --gate:        #4FBFAA;
+      --gate-wash:   #12241F;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #0F1317;
+    --surface:     #171C21;
+    --surface-2:   #1F262D;
+    --ink:         #E6ECF2;
+    --ink-2:       #A9B5C0;
+    --ink-3:       #77848F;
+    --rule:        #2C353D;
+    --rule-soft:   #232B32;
+
+    --accent:      #E8A93C;
+    --accent-ink:  #F2BC5C;
+    --accent-wash: #2A2113;
+
+    --danger:      #E87259;
+    --danger-wash: #2C1815;
+    --gate:        #4FBFAA;
+    --gate-wash:   #12241F;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.3);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 20px 96px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  /* ---------------- masthead ---------------- */
+  .masthead { padding: 56px 0 28px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-size: clamp(32px, 7vw, 46px);
+    line-height: 1.06;
+    letter-spacing: -.028em;
+    font-weight: 700;
+    margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 18px;
+    color: var(--ink-2);
+    margin: 0;
+    max-width: 62ch;
+  }
+
+  /* ---------------- stage jump bar ---------------- */
+  .jump {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 10px 0;
+    margin-bottom: 8px;
+    background: color-mix(in srgb, var(--ground) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule-soft);
+    scrollbar-width: none;
+  }
+  .jump::-webkit-scrollbar { display: none; }
+  .jump a {
+    flex: 0 0 auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .04em;
+    text-decoration: none;
+    color: var(--ink-2);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 5px 10px;
+    transition: color .15s, border-color .15s;
+  }
+  .jump a:hover, .jump a:focus-visible { color: var(--accent-ink); border-color: var(--accent); }
+
+  /* ---------------- reference block ---------------- */
+  .ref {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 24px 22px;
+    margin: 28px 0 12px;
+    box-shadow: var(--shadow);
+  }
+  .ref > h2 { margin-top: 0; }
+
+  h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    margin: 34px 0 14px;
+  }
+  h3 {
+    font-size: 17px;
+    letter-spacing: -.01em;
+    margin: 26px 0 10px;
+    color: var(--ink);
+  }
+  p { margin: 0 0 14px; max-width: 66ch; }
+  a { color: var(--accent-ink); }
+
+  /* ---------------- tables ---------------- */
+  .scroll { overflow-x: auto; margin: 0 0 18px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 600;
+    padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+    color: var(--ink-2);
+  }
+  td:first-child { color: var(--ink); }
+  td.pin { font-family: var(--mono); font-size: 13.5px; color: var(--ink); white-space: nowrap; }
+  .warn-cell { color: var(--danger); font-weight: 600; }
+
+  /* ---------------- code ---------------- */
+  pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.62;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 18px;
+    color: var(--ink);
+  }
+  code {
+    font-family: var(--mono);
+    font-size: .89em;
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--ink);
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* ---------------- stages ---------------- */
+  .stage {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 26px 24px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow);
+    scroll-margin-top: 62px;
+  }
+  .stage-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+  .stage-num {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    color: var(--accent-ink);
+    background: var(--accent-wash);
+    border-radius: 3px;
+    padding: 3px 8px;
+    white-space: nowrap;
+  }
+  .stage-head h3 {
+    margin: 0;
+    font-size: clamp(20px, 4.4vw, 25px);
+    letter-spacing: -.02em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .goal {
+    color: var(--ink-2);
+    font-size: 15.5px;
+    margin: 0 0 18px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .stage h2 { margin-top: 24px; }
+  .stage h2:first-of-type { margin-top: 0; }
+
+  /* ---------------- checklists ---------------- */
+  ul.check { list-style: none; padding: 0; margin: 0 0 18px; display: flex; flex-direction: column; gap: 9px; }
+  ul.check li { display: flex; gap: 11px; align-items: flex-start; font-size: 15.5px; color: var(--ink-2); }
+  ul.check input[type=checkbox] {
+    appearance: none;
+    flex: 0 0 auto;
+    width: 17px; height: 17px;
+    margin: 4px 0 0;
+    border: 1.5px solid var(--rule);
+    border-radius: 3px;
+    background: var(--surface);
+    cursor: pointer;
+    position: relative;
+    transition: background .15s, border-color .15s;
+  }
+  ul.check input[type=checkbox]:checked { background: var(--gate); border-color: var(--gate); }
+  ul.check input[type=checkbox]:checked::after {
+    content: "";
+    position: absolute;
+    left: 5px; top: 1px;
+    width: 4px; height: 9px;
+    border: solid var(--surface);
+    border-width: 0 2px 2px 0;
+    transform: rotate(43deg);
+  }
+  ul.check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ul.check input:checked + span { color: var(--ink-3); text-decoration: line-through; }
+
+  ul.plain { padding-left: 20px; margin: 0 0 18px; color: var(--ink-2); }
+  ul.plain li { margin-bottom: 7px; }
+  ol.plain { padding-left: 20px; margin: 0 0 18px; color: var(--ink-2); }
+  ol.plain li { margin-bottom: 7px; }
+
+  /* ---------------- callouts ---------------- */
+  .danger {
+    position: relative;
+    background: var(--danger-wash);
+    border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent);
+    border-radius: 4px;
+    padding: 18px 20px 18px 30px;
+    margin: 0 0 18px;
+    overflow: hidden;
+  }
+  /* hazard tape — the same yellow/black pattern breaker_detect.py looks for */
+  .danger::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 12px;
+    background: repeating-linear-gradient(
+      -45deg,
+      var(--accent) 0 7px,
+      var(--ink) 7px 14px
+    );
+  }
+  .danger strong { color: var(--danger); }
+  .danger p:last-child, .gate p:last-child, .note p:last-child { margin-bottom: 0; }
+
+  .gate {
+    background: var(--gate-wash);
+    border: 1px solid color-mix(in srgb, var(--gate) 30%, transparent);
+    border-left: 3px solid var(--gate);
+    border-radius: 4px;
+    padding: 18px 20px;
+    margin: 20px 0 0;
+  }
+  .gate-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--gate);
+    font-weight: 700;
+    margin: 0 0 10px;
+  }
+  .gate ul.check { margin-bottom: 0; }
+
+  .note {
+    background: var(--surface-2);
+    border-left: 3px solid var(--rule);
+    border-radius: 0 4px 4px 0;
+    padding: 14px 18px;
+    margin: 0 0 18px;
+    font-size: 15px;
+    color: var(--ink-2);
+  }
+
+  /* ---------------- ascii diagram ---------------- */
+  .diagram {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: 18px;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 0 0 18px;
+    color: var(--ink);
+  }
+
+  footer {
+    margin-top: 44px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-size: 14px;
+    color: var(--ink-3);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+  @media (max-width: 600px) {
+    body { padding: 0 16px 72px; }
+    .stage, .ref { padding: 20px 17px; }
+    .masthead { padding: 36px 0 20px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Campus Delivery Cart · 1/8 scale</p>
+    <h1>Build stages: what to wire, what to test, in what order</h1>
+    <p class="standfirst">Nine stages from a bare bench to an autonomous cart. Each one adds a
+      single subsystem and ends with a gate you must pass before wiring the next. Never add two
+      things at once — when something breaks you need to know which addition caused it.</p>
+  </header>
+
+  <nav class="jump" aria-label="Jump to stage">
+    <a href="#ref">Reference</a>
+    <a href="#s0">0 · Bench</a>
+    <a href="#s1">1 · Drivetrain</a>
+    <a href="#s2">2 · Vision</a>
+    <a href="#s3">3 · Pilot</a>
+    <a href="#s4">4 · Sonar</a>
+    <a href="#s5">5 · First drive</a>
+    <a href="#s6">6 · Breakers</a>
+    <a href="#s7">7 · GPS</a>
+    <a href="#s8">8 · App</a>
+    <a href="#buy">Parts</a>
+  </nav>
+
+  <!-- ================= REFERENCE ================= -->
+  <section class="ref" id="ref">
+    <h2>Master pin map</h2>
+    <p>Everything below assumes this allocation. It avoids collisions between I²C, the iBUS UART,
+      and the sonar pins.</p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Function</th><th>BCM</th><th>Physical</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>PCA9685 SDA</td><td class="pin">GPIO2</td><td class="pin">3</td><td>I²C bus 1, addr <code>0x40</code></td></tr>
+          <tr><td>PCA9685 SCL</td><td class="pin">GPIO3</td><td class="pin">5</td><td></td></tr>
+          <tr><td>iBUS in (FlySky RX)</td><td class="pin">GPIO15</td><td class="pin">10</td><td><code>/dev/serial0</code>, receive-only</td></tr>
+          <tr><td>Sonar LEFT trig</td><td class="pin">GPIO5</td><td class="pin">29</td><td></td></tr>
+          <tr><td>Sonar LEFT echo</td><td class="pin">GPIO6</td><td class="pin">31</td><td class="warn-cell">via divider</td></tr>
+          <tr><td>Sonar CENTER trig</td><td class="pin">GPIO19</td><td class="pin">35</td><td></td></tr>
+          <tr><td>Sonar CENTER echo</td><td class="pin">GPIO26</td><td class="pin">37</td><td class="warn-cell">via divider</td></tr>
+          <tr><td>Sonar RIGHT trig</td><td class="pin">GPIO20</td><td class="pin">38</td><td></td></tr>
+          <tr><td>Sonar RIGHT echo</td><td class="pin">GPIO21</td><td class="pin">40</td><td class="warn-cell">via divider</td></tr>
+          <tr><td>GPS module</td><td class="pin">—</td><td class="pin">USB</td><td>USB-TTL adapter — the UART is taken</td></tr>
+          <tr><td>Webcam</td><td class="pin">—</td><td class="pin">USB 3.0</td><td>the blue port</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>PCA9685 channels: <strong>ch0 drives the ESC</strong>, <strong>ch1 drives the steering
+      servo</strong>.</p>
+
+    <h2>Power architecture</h2>
+    <div class="diagram"> LiPo ──► ESC ──► BLDC motor
+           └─ BEC 5-6V ──► PCA9685 V+   (servo power only)
+
+ Power bank 5V/3A ──► Pi 4B USB-C
+
+ ALL GROUNDS TIED:  LiPo/ESC ── PCA9685 ── Pi ── sensors</div>
+
+    <div class="danger">
+      <p><strong>Two rules that cause most RC-car Pi failures.</strong></p>
+      <p><strong>Never power the Pi from the ESC's BEC.</strong> Motor current spikes brown out the
+        Pi, and you will spend a week chasing "random reboots" that look exactly like software bugs.</p>
+      <p><strong>Common ground is mandatory.</strong> A PWM signal is meaningless without a shared
+        reference. A missing ground shows up as a twitching servo or no response at all.</p>
+    </div>
+    <p>Any time you add a load, re-check <code>vcgencmd get_throttled</code>. It must print
+      <code>0x0</code>; anything else is undervoltage or thermal throttling.</p>
+  </section>
+
+  <!-- ================= STAGE 0 ================= -->
+  <section class="stage" id="s0">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 0</span>
+      <h3>Bench prep, nothing moves yet</h3>
+    </div>
+    <p class="goal">Get a Pi that boots reliably with enough free RAM to run the models later.
+      On 2 GB this stage is not optional housekeeping — it is what makes the rest fit.</p>
+
+    <h2>Electronics</h2>
+    <ul class="check">
+      <li><input type="checkbox"><span>Heatsink on the Pi at minimum; a small fan (₹200) is worth it — sustained inference thermally throttles a bare Pi 4.</span></li>
+      <li><input type="checkbox"><span>Flash <strong>Raspberry Pi OS Lite 64-bit</strong>, headless. The desktop costs ~400 MB of your 2 GB and you have none to spare. Enable SSH in Imager.</span></li>
+      <li><input type="checkbox"><span>Power bank → Pi. Confirm it delivers a genuine 5 V/3 A, not 2.1–2.4 A.</span></li>
+    </ul>
+
+    <h2>Software</h2>
+    <pre><code>sudo apt update &amp;&amp; sudo apt install -y pigpio python3-venv i2c-tools zram-tools
+sudo systemctl enable --now pigpiod
+sudo raspi-config   # enable I2C, enable serial PORT, disable serial CONSOLE</code></pre>
+    <div class="note">Use zram, never SD-card swap. Swapping to the SD card will destroy it in
+      weeks and the failure looks like random corruption.</div>
+
+    <div class="gate">
+      <p class="gate-label">Gate 0</p>
+      <ul class="check">
+        <li><input type="checkbox"><span><code>vcgencmd get_throttled</code> returns <code>0x0</code></span></li>
+        <li><input type="checkbox"><span><code>free -m</code> shows at least 1.6 GB free</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 1 ================= -->
+  <section class="stage" id="s1">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 1</span>
+      <h3>Drivetrain and RC override</h3>
+    </div>
+    <p class="goal">You mostly have this already. It still gets its own gate, because the RC
+      transmitter is your emergency stop for every stage that follows — the manual path must be
+      bulletproof before any autonomy exists.</p>
+
+    <h2>Electronics</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>From</th><th>To</th></tr></thead>
+        <tbody>
+          <tr><td class="pin">Pi GPIO2 / GPIO3</td><td>PCA9685 SDA / SCL</td></tr>
+          <tr><td class="pin">Pi 3.3 V (pin 1)</td><td>PCA9685 VCC — logic supply</td></tr>
+          <tr><td class="pin">ESC BEC 5–6 V</td><td>PCA9685 <strong>V+</strong> — servo rail</td></tr>
+          <tr><td class="pin">PCA9685 ch0</td><td>ESC signal wire</td></tr>
+          <tr><td class="pin">PCA9685 ch1</td><td>Steering servo signal</td></tr>
+          <tr><td class="pin">FlySky RX iBUS pin</td><td>Pi GPIO15 (physical 10)</td></tr>
+          <tr><td class="pin">everything</td><td>common ground</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Free the UART for iBUS in <code>/boot/firmware/config.txt</code>:</p>
+    <pre><code>enable_uart=1
+dtoverlay=disable-bt</code></pre>
+    <p>Then <code>sudo systemctl disable hciuart</code> and delete
+      <code>console=serial0,115200</code> from <code>cmdline.txt</code> — the serial console will
+      eat your iBUS bytes otherwise.</p>
+
+    <h2>Software</h2>
+    <pre><code>i2cdetect -y 1                          # must show 40
+donkey calibrate --channel 1 --bus 1    # steering: left/right pulse values
+donkey calibrate --channel 0 --bus 1    # throttle: stop/forward/reverse</code></pre>
+    <div class="note">Put the measured numbers into <code>PWM_STEERING_THROTTLE</code> in
+      <code>myconfig.py</code>. The values sitting in <code>config.py</code> are placeholders and
+      will not drive your hardware correctly.</div>
+
+    <div class="gate">
+      <p class="gate-label">Gate 1 — wheels off the ground first, then on</p>
+      <ul class="check">
+        <li><input type="checkbox"><span><code>python manage.py drive</code> — sticks move servo and motor correctly</span></li>
+        <li><input type="checkbox"><span>CH5 switch changes mode between <code>user</code>, <code>local_angle</code>, <code>local</code> in the log</span></li>
+        <li><input type="checkbox"><span>Five minutes of manual driving: no reboots, no twitching</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 2 ================= -->
+  <section class="stage" id="s2">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 2</span>
+      <h3>Camera and the offline vision go/no-go</h3>
+    </div>
+    <p class="goal">The cheapest stage to fail, so it comes before everything else. You are
+      deciding here whether the pretrained model actually sees your campus — and whether a 2 GB
+      Pi 4 can run it at all.</p>
+
+    <h2>Electronics</h2>
+    <ul class="check">
+      <li><input type="checkbox"><span>USB webcam into the Pi's <strong>USB 3.0 (blue)</strong> port</span></li>
+      <li><input type="checkbox"><span>Set <code>CAMERA_TYPE = "CVCAM"</code> — the <code>WEBCAM</code> option uses pygame and is flaky on Linux</span></li>
+    </ul>
+
+    <h2>On your laptop, in a venv</h2>
+    <pre><code>python -m venv .venv &amp;&amp; .venv/Scripts/activate
+pip install transformers torch onnx onnxruntime ultralytics
+python scripts/export_models.py</code></pre>
+    <p>Copy <code>exported_models/</code> into <code>mycar/models/</code> on the Pi.</p>
+
+    <h2>Collect footage</h2>
+    <p>Walk every planned route holding the webcam at the car's real camera height and angle. The
+      clips must include sandy or unpaved stretches, at least one speed breaker, people walking,
+      and a junction where the path forks.</p>
+    <pre><code>python scripts/vision_bench.py --video campus_walk.mp4 \
+  --seg-model models/exported_models/segformer_sidewalk_int8.onnx \
+  --seg-labels models/exported_models/segformer_labels.json \
+  --yolo-model models/exported_models/yolov8n_ncnn_model --out annotated.mp4</code></pre>
+
+    <div class="gate">
+      <p class="gate-label">Gate 2 — watch annotated.mp4, read the printed numbers</p>
+      <ul class="check">
+        <li><input type="checkbox"><span>Green mask covers the ground you would actually drive on, <strong>including sand</strong>. If not → fine-tune with ~100 labeled campus images on free Colab, re-export, re-run.</span></li>
+        <li><input type="checkbox"><span>Segmentation ≥ 1 FPS and peak RSS under ~1200 MB. If not → Pi 5 8 GB; no code changes needed.</span></li>
+        <li><input type="checkbox"><span>Steering value swings the correct direction as the path curves</span></li>
+      </ul>
+      <p style="margin-top:12px;font-size:15px;">Do not proceed until this passes. Everything
+        downstream assumes the mask is trustworthy.</p>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 3 ================= -->
+  <section class="stage" id="s3">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 3</span>
+      <h3>Segmentation pilot on the car, wheels off the ground</h3>
+    </div>
+    <p class="goal">First time the model commands the servo. No new wiring — the risk here is
+      entirely in calibration.</p>
+
+    <h2>Camera calibration — do it once, properly</h2>
+    <p>Mount the camera rigidly at a fixed height and tilt. If it moves later, your corridor
+      calibration is void and the car will misjudge whether it fits through gaps.</p>
+    <ol class="plain">
+      <li>Tape a 1 m × 1 m grid on the ground in front of the car.</li>
+      <li>Capture a frame; measure how many pixels wide your (car width + 20 cm margin) corridor
+        spans at the <strong>bottom</strong> of the image.</li>
+      <li>Set <code>SEG_CORRIDOR_FRAC = that_width_px / image_width_px</code>.</li>
+    </ol>
+    <pre><code>USE_CAMPUS_AUTONOMY = True     # everything else still False
+CAMERA_TYPE = "CVCAM"</code></pre>
+
+    <div class="gate">
+      <p class="gate-label">Gate 3 — car up on a box, wheels spinning free</p>
+      <ul class="check">
+        <li><input type="checkbox"><span>Camera pointed at a clear path → wheels straight, motor spins slowly</span></li>
+        <li><input type="checkbox"><span>Block the lens with cardboard → <strong>throttle goes to zero</strong></span></li>
+        <li><input type="checkbox"><span>Angle the camera so the path sits off to one side → steering follows it</span></li>
+        <li><input type="checkbox"><span>Flip CH5 to <code>user</code> mid-run → RC takes over instantly</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 4 ================= -->
+  <section class="stage" id="s4">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 4</span>
+      <h3>Ultrasonic safety layer</h3>
+    </div>
+    <p class="goal">Three HC-SR04s giving you a hard stop that does not depend on the camera or
+      the model. This is the stage where wrong wiring destroys hardware.</p>
+
+    <div class="danger">
+      <p><strong>HC-SR04 ECHO outputs 5 V. Pi GPIO tolerates 3.3 V.</strong> Connecting them
+        directly kills the pin and possibly the Pi. You need one voltage divider per sensor —
+        three in total.</p>
+    </div>
+
+    <div class="diagram"> ECHO ──[ 1 kΩ ]──┬── Pi GPIO  (6 / 26 / 21)
+                  │
+                [ 2 kΩ ]
+                  │
+                 GND</div>
+    <p>5 V × 2k/(1k+2k) = <strong>3.33 V</strong>. Use 1 kΩ + 1.8 kΩ (→ 3.21 V) if you want more
+      margin. TRIG needs no divider — the Pi drives it at 3.3 V, which the HC-SR04 accepts.</p>
+    <div class="note"><strong>Cleaner alternative:</strong> buy <strong>HC-SR04P</strong> (~₹80
+      each) and power them at 3.3 V. ECHO then swings to 3.3 V and no dividers are needed at all.
+      Range drops to roughly 2–3 m, which is far more than the 80 cm this design uses.</div>
+
+    <h2>Mounting — this is the speed-breaker fix, don't skip it</h2>
+    <ul class="check">
+      <li><input type="checkbox"><span>All three mounted <strong>≥ 10–12 cm above the ground, aimed level or slightly up</strong>, so a 5–6 cm breaker passes below the beam. Mounted low, the cart hard-stops at every breaker forever and looks broken.</span></li>
+      <li><input type="checkbox"><span>Left and right splayed ~30° outward so they don't hear each other's pings</span></li>
+      <li><input type="checkbox"><span>VCC of all three to the <strong>5 V rail</strong> (Pi pin 2 or 4 is fine — roughly 15 mA each)</span></li>
+    </ul>
+
+    <h2>Software</h2>
+    <pre><code>HAVE_ULTRASONIC = True
+ULTRASONIC_PINS = {"left": (5, 6), "center": (19, 26), "right": (20, 21)}</code></pre>
+    <p>Test the sensors standalone before touching <code>manage.py</code>:</p>
+    <pre><code>cd mycar &amp;&amp; python -m parts.ultrasonic</code></pre>
+
+    <div class="gate">
+      <p class="gate-label">Gate 4</p>
+      <ul class="check">
+        <li><input type="checkbox"><span>Standalone test prints sane centimetre values; a waved hand drops them</span></li>
+        <li><input type="checkbox"><span>Full drive, wheels off ground: hand closer than 30 cm → <strong>throttle cuts</strong></span></li>
+        <li><input type="checkbox"><span>Remove hand → resumes after the five-reading clear streak</span></li>
+        <li><input type="checkbox"><span>Walk a speed breaker under the sensors → <strong>no false stop</strong></span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 5 ================= -->
+  <section class="stage" id="s5">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 5</span>
+      <h3>First real autonomous drive</h3>
+    </div>
+    <p class="goal">Wheels on the ground, model in control, you walking beside it with your thumb
+      on the mode switch.</p>
+
+    <h2>Software</h2>
+    <p>Enable <code>HAVE_YOLO_GUARD = True</code> and start slower than the defaults:</p>
+    <pre><code>SEG_THROTTLE_CRUISE = 0.20   # slower than default while tuning
+SEG_THROTTLE_CREEP  = 0.14</code></pre>
+
+    <h2>Procedure — a straight, empty, obstacle-free path</h2>
+    <ol class="plain">
+      <li>Walk <strong>beside the car with the transmitter in your hand</strong>, thumb on CH5.</li>
+      <li>Flip to <code>local</code>. Let it drive 10 m. Flip back to <code>user</code>.</li>
+      <li>Tune: weaving → lower <code>SEG_KP</code>. Cutting corners → raise it. Oscillation that
+        grows instead of settling → raise <code>SEG_KD</code>.</li>
+      <li>Only once straights are stable, try a gentle curve.</li>
+    </ol>
+
+    <div class="gate">
+      <p class="gate-label">Gate 5</p>
+      <ul class="check">
+        <li><input type="checkbox"><span>50 m of continuous autonomous driving with no intervention</span></li>
+        <li><input type="checkbox"><span>Deliberately step in front of it — it stops</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 6 ================= -->
+  <section class="stage" id="s6">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 6</span>
+      <h3>Speed breakers and rough surfaces</h3>
+    </div>
+    <p class="goal">Teach it to cross the yellow-and-black plastic breakers instead of stopping
+      dead at them — and confirm the chassis can physically clear one.</p>
+
+    <h2>Physical gate — measure before you drive at one</h2>
+    <ul class="check">
+      <li><input type="checkbox"><span>Wheel diameter ≥ roughly 2× breaker height (110–130 mm wheel for a 55–65 mm breaker)</span></li>
+      <li><input type="checkbox"><span>Belly clearance at <strong>full suspension compression</strong> clears the crest with ~20 mm to spare</span></li>
+    </ul>
+    <div class="note">If either measurement fails, mark that route impassable in the campus graph
+      and route around it. Do not try to power over it — you will beach the chassis or strip the
+      20-tooth pinion.</div>
+
+    <h2>Software</h2>
+    <p><code>HAVE_BREAKER_DETECT = True</code> is on by default. Verify it on your recorded
+      footage first: <code>vision_bench.py</code> prints <code>[BREAKER]</code> on the annotated
+      frames where it fires.</p>
+    <p><strong>Optional MPU6050</strong> (₹150) catches <em>unpainted</em> humps, which have no
+      stripes to detect. Wire it to the <strong>same I²C bus</strong> as the PCA9685 — address
+      <code>0x68</code>, no conflict with <code>0x40</code> — and trigger creep from the pitch jolt.</p>
+
+    <div class="gate">
+      <p class="gate-label">Gate 6</p>
+      <ul class="check">
+        <li><input type="checkbox"><span>Cart approaches a striped breaker → drops to creep, crosses perpendicular, resumes</span></li>
+        <li><input type="checkbox"><span>It does not stop dead on top of it</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 7 ================= -->
+  <section class="stage" id="s7">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 7</span>
+      <h3>GPS, geofence, junctions</h3>
+    </div>
+    <p class="goal">Give it a map. GPS never steers — it answers "which junction is next" (a 10 m
+      question) and "am I still inside the allowed area", both of which 2–5 m accuracy can handle.</p>
+
+    <h2>Electronics</h2>
+    <ul class="check">
+      <li><input type="checkbox"><span>NEO-M8N with an <strong>active antenna</strong>, clear sky view, mounted away from the ESC and the Pi — both are RF-noisy. A small ground plane under the antenna helps.</span></li>
+      <li><input type="checkbox"><span>NEO-M8N → <strong>USB-TTL adapter → Pi USB port</strong>. Not the UART pins: iBUS owns <code>/dev/serial0</code>, and moving it risks breaking your working RC link.</span></li>
+      <li><input type="checkbox"><span>GPS TX → adapter RX, GPS RX → adapter TX, VCC/GND per the module's spec</span></li>
+    </ul>
+
+    <h2>Software</h2>
+    <pre><code>sudo apt install -y gpsd gpsd-clients
+sudo dpkg-reconfigure gpsd     # device: /dev/ttyUSB0
+cgps -s                        # confirm a 3D fix before anything else</code></pre>
+    <p>On the laptop, build the campus graph and copy it to <code>mycar/</code>:</p>
+    <pre><code>python scripts/build_campus_graph.py --point &lt;lat&gt;,&lt;lon&gt; --dist 800</code></pre>
+    <pre><code>HAVE_GPS_NAV = True
+GEOFENCE = [(lat1, lon1), (lat2, lon2), ...]   # WIDE margin — GPS error is 2-5 m
+MISSION_REQUIRES_GPS = True                     # outdoor only; False indoors</code></pre>
+
+    <div class="note"><strong>Survey the routes first.</strong> Walk each one with <code>cgps</code>
+      open. Tree cover and building canyons produce 10 m+ error or no fix at all. A route with dead
+      zones needs either a different path or buffered positions replayed on reconnect.</div>
+
+    <div class="gate">
+      <p class="gate-label">Gate 7</p>
+      <ul class="check">
+        <li><input type="checkbox"><span>Carry the powered car (motor disconnected) outside the geofence → log shows <code>GPS UNSAFE — fail closed</code></span></li>
+        <li><input type="checkbox"><span>Drive a route with one junction; the log prints <code>LEFT</code>/<code>RIGHT</code> at the right place</span></li>
+        <li><input type="checkbox"><span>The cart takes the correct branch at the fork</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= STAGE 8 ================= -->
+  <section class="stage" id="s8">
+    <div class="stage-head">
+      <span class="stage-num">STAGE 8</span>
+      <h3>App, teleop, delivery</h3>
+    </div>
+    <p class="goal">The part the user sees: drop a pin, watch the cart come.</p>
+    <p>FastAPI + SQLite + WebSocket backend, React + Leaflet PWA on the front, <strong>Tailscale</strong>
+      to reach the Pi behind campus NAT without asking IT for port forwarding, and MediaMTX/WebRTC
+      for the operator video feed.</p>
+    <p>Add the <strong>deadman heartbeat</strong> before any remote driving: a command every 200 ms,
+      throttle cut after 500 ms of silence. Without it a Wi-Fi dropout means the cart keeps driving
+      at its last commanded throttle.</p>
+    <div class="note">The second camera (USB 720p for the operator, PiCam for the model) belongs
+      here — but check RAM headroom first. On 2 GB this is the single most likely trigger for an
+      out-of-memory kill.</div>
+  </section>
+
+  <!-- ================= PARTS ================= -->
+  <section class="ref" id="buy">
+    <h2>Parts to buy, by the stage that needs them</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Item</th><th>₹ approx</th><th>Stage</th></tr></thead>
+        <tbody>
+          <tr><td>Resistors 1 kΩ + 2 kΩ &nbsp;<em>or</em>&nbsp; HC-SR04P ×3</td><td class="pin">50 / 250</td><td class="pin">4</td></tr>
+          <tr><td>Perfboard + jumper wires</td><td class="pin">150</td><td class="pin">4</td></tr>
+          <tr><td>Heatsink + fan</td><td class="pin">200</td><td class="pin">0</td></tr>
+          <tr><td>5 V/3 A power bank <em>(if yours is 2.1–2.4 A)</em></td><td class="pin">1,000–1,500</td><td class="pin">0</td></tr>
+          <tr><td>USB webcam</td><td class="pin">800–1,500</td><td class="pin">2</td></tr>
+          <tr><td>u-blox NEO-M8N + active antenna</td><td class="pin">1,200–1,800</td><td class="pin">7</td></tr>
+          <tr><td>USB-TTL adapter (CP2102 / CH340)</td><td class="pin">150</td><td class="pin">7</td></tr>
+          <tr><td>MPU6050 <em>(optional)</em></td><td class="pin">150</td><td class="pin">6</td></tr>
+          <tr><td>Multimeter <em>(if you don't have one)</em></td><td class="pin">500</td><td class="pin">all</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note"><strong>Upgrade trigger, not a purchase yet.</strong> A Pi 5 8 GB (~₹8,000)
+      only if Gate 2 fails on RAM or speed. Every wire and every line of code carries over unchanged.</div>
+  </section>
+
+  <footer>
+    Architecture and code reference: <code>AUTONOMY.md</code> · parts in <code>mycar/parts/</code> ·
+    scripts in <code>scripts/</code>. Checkbox state is saved in this browser.
+  </footer>
+
+</div>
+
+<script>
+  // persist the build checklist across visits — this is a multi-week job
+  (function () {
+    var boxes = document.querySelectorAll('input[type=checkbox]');
+    var KEY = 'cart-build-stages-v1';
+    var saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { saved = {}; }
+
+    boxes.forEach(function (box, i) {
+      if (saved[i]) box.checked = true;
+      box.addEventListener('change', function () {
+        saved[i] = box.checked;
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      });
+    });
+  })();
+</script>
