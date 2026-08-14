@@ -25,7 +25,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mycar"))
 
-from parts.seg_pilot import SegEngine, SegPilot, _runs                # noqa: E402
+from parts.seg_pilot import SegEngine, SegPilot, _runs, _target_x     # noqa: E402
 from parts.yolo_guard import YoloGuard                                # noqa: E402
 from parts.ultrasonic import UltrasonicArray, NOTHING_IN_RANGE, NO_RESPONSE  # noqa: E402
 from parts.breaker_detect import BreakerDetect, detect_breaker        # noqa: E402
@@ -47,12 +47,13 @@ def section(title):
     print(f"\n--- {title} ---")
 
 
-def make_engine(mask_close_px=9):
+def make_engine(mask_close_px=9, junction_bias=0.7):
     """A SegEngine with the steering parameters but no ONNX session."""
     e = SegEngine.__new__(SegEngine)
     e.kp, e.kd = 1.2, 0.0
     e.bands, e.roi_top = 5, 0.4
     e.corridor_frac_bottom = 0.28
+    e.junction_bias = junction_bias
     e.throttle_cruise, e.throttle_creep = 0.30, 0.16
     e._prev_offset, e._prev_time, e._prev_centroid_frac = 0.0, None, 0.5
     e.mask_close_px = mask_close_px
@@ -109,6 +110,47 @@ eng = make_engine(); aL, _, cL, _ = eng.steer_from_mask(mask, "LEFT")
 eng = make_engine(); aR, _, cR, _ = eng.steer_from_mask(mask, "RIGHT")
 check("fork: LEFT and RIGHT diverge", cL and cR and aL < -0.2 and aR > 0.2,
       f"L={aL:.2f} R={aR:.2f}")
+
+# OPEN junction: continuous tarmac, so every band sees ONE wide run and
+# _pick_run has nothing to choose between. This is the campus-plaza case that
+# used to give identical steering for all three commands and drive the cart
+# straight through every turn.
+wide = np.zeros((S, S), np.uint8); wide[:, 8:248] = 1
+eng = make_engine(); aL, _, cL, _ = eng.steer_from_mask(wide, "LEFT")
+eng = make_engine(); aR, _, cR, _ = eng.steer_from_mask(wide, "RIGHT")
+eng = make_engine(); aS, _, cS, _ = eng.steer_from_mask(wide, "STRAIGHT")
+check("open junction: LEFT steers left", cL and aL < -0.2, f"a={aL:+.2f}")
+check("open junction: RIGHT steers right", cR and aR > 0.2, f"a={aR:+.2f}")
+check("open junction: STRAIGHT stays centred", cS and abs(aS) < 0.05,
+      f"a={aS:+.2f}")
+check("open junction: the three commands differ",
+      abs(aL - aR) > 0.4 and abs(aL - aS) > 0.2 and abs(aR - aS) > 0.2,
+      f"L={aL:+.2f} S={aS:+.2f} R={aR:+.2f}")
+
+# The bias must never aim the cart closer to a boundary than it can fit. That
+# invariant lives in _target_x and is checked here directly: at mask level the
+# width requirement shrinks with distance (perspective), so a fixed-pixel
+# corridor is genuinely wide in the far bands and SHOULD bias there.
+check("bias keeps full clearance from the commanded edge",
+      _target_x((0, 200), "LEFT", 40, 1.0) == 20 and
+      _target_x((0, 200), "RIGHT", 40, 1.0) == 180)
+check("bias is proportional between centre and edge",
+      _target_x((0, 200), "LEFT", 40, 0.5) == 60)
+check("corridor only as wide as the cart cannot bias",
+      _target_x((0, 40), "LEFT", 40, 1.0) == 20 and
+      _target_x((0, 30), "LEFT", 40, 1.0) == 15)
+check("no command aims at the centre",
+      _target_x((0, 200), None, 40, 1.0) == 100 and
+      _target_x((0, 200), "STRAIGHT", 40, 1.0) == 100)
+
+# and a turn command must not override an actual obstacle
+eng = make_engine()
+check("turn command cannot invent a corridor",
+      not eng.steer_from_mask(np.zeros((S, S), np.uint8), "LEFT")[2])
+
+eng = make_engine(junction_bias=0.0)
+a0, _, _, _ = eng.steer_from_mask(wide, "LEFT")
+check("junction_bias=0 restores centring", abs(a0) < 0.05, f"a={a0:+.2f}")
 
 eng = make_engine()
 full = np.zeros((S, S), np.uint8); full[:, 88:168] = 1

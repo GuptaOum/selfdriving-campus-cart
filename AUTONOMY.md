@@ -171,6 +171,28 @@ python scripts/vision_bench.py --video campus_walk.mp4 \
 - Calibrate `SEG_CORRIDOR_FRAC` after taping a 1 m grid and measuring how many
   pixels the (bot width + margin) corridor spans at the bottom image band.
 
+## How a junction command actually turns the cart
+
+GPS says LEFT/RIGHT/STRAIGHT; the mask has to turn that into steering. Two
+mechanisms, because campus junctions come in two shapes:
+
+- **Forked junction** — grass or a kerb separates the arms, so each band reports
+  several drivable runs. `_pick_run` takes the leftmost or rightmost run.
+- **Open junction** — a continuous paved plaza, so each band reports ONE wide
+  run and there is nothing to pick between. `_target_x` aims off-centre inside
+  that run, toward the commanded side, leaving exactly the cart's required
+  clearance from the edge. `SEG_JUNCTION_BIAS` scales how hard it pulls.
+
+The second case is the common one on a plaza and it used to be unhandled: all
+three commands took the geometric middle of the same wide run, produced the
+same steering, and the cart drove straight through every turn.
+
+Note what this is not: the command **biases** the aim point, it does not
+command an angle. A corridor only as wide as the cart cannot bias at all, so a
+wrong junction call on a narrow path steers nothing, and the arbiter and sonar
+still veto on top. Turn `SEG_JUNCTION_BIAS` down if the cart cuts corners
+tight; 0 restores pure centring.
+
 ## Mission server (EC2) and the split that matters
 
 The phone app and the campus routing live on an EC2 box; the cart polls it.

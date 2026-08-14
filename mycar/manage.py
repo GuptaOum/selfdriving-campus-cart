@@ -1036,6 +1036,7 @@ def add_campus_autonomy(V, cfg):
                      kd=getattr(cfg, 'SEG_KD', 0.3),
                      corridor_frac_bottom=getattr(cfg, 'SEG_CORRIDOR_FRAC', 0.28),
                      mask_close_px=getattr(cfg, 'SEG_MASK_CLOSE_PX', 9),
+                     junction_bias=getattr(cfg, 'SEG_JUNCTION_BIAS', 0.7),
                      throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
                      throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16))
     V.add(pilot, inputs=['cam/image_array', 'nav/command'],

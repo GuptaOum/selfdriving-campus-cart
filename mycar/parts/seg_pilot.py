@@ -31,7 +31,7 @@ class SegEngine:
                  bands=5, roi_top=0.4,
                  corridor_frac_bottom=0.28,
                  throttle_cruise=0.30, throttle_creep=0.16,
-                 mask_close_px=9):
+                 mask_close_px=9, junction_bias=0.7):
         """
         :param onnx_path: segformer_sidewalk_int8.onnx
         :param labels_path: segformer_labels.json (from export_models.py)
@@ -49,6 +49,10 @@ class SegEngine:
                under trees — all of which segment as a checkerboard that would
                otherwise be rejected as dozens of too-narrow runs. Set to 0 to
                disable; raise it if your surface has bigger gaps.
+        :param junction_bias: how hard a LEFT/RIGHT command pulls the aim point
+               toward that side of a wide corridor, 0 (ignore the command) to
+               1 (hug the edge at minimum clearance). Only matters where the
+               corridor is wider than the cart needs; see _target_x.
         """
         import onnxruntime as ort  # deferred: not needed for unit tests of steering
 
@@ -77,6 +81,7 @@ class SegEngine:
         self.corridor_frac_bottom = corridor_frac_bottom
         self.throttle_cruise, self.throttle_creep = throttle_cruise, throttle_creep
         self.mask_close_px = mask_close_px
+        self.junction_bias = junction_bias
         self._close_kernel = (
             cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                       (mask_close_px, mask_close_px))
@@ -145,7 +150,7 @@ class SegEngine:
                 break
 
             run = _pick_run(runs, nav_command, self._prev_centroid_frac * w)
-            cx = (run[0] + run[1]) / 2.0
+            cx = _target_x(run, nav_command, required, self.junction_bias)
             centroids.append((b, cx / w, run[1] - run[0]))
             deepest_clear = b
 
@@ -191,13 +196,47 @@ def _runs(col_occ):
 
 
 def _pick_run(runs, nav_command, prev_cx):
-    """Choose which drivable branch to follow — this is junction handling."""
+    """Choose which drivable branch to follow — half of junction handling."""
     if nav_command == "LEFT":
         return runs[0]
     if nav_command == "RIGHT":
         return runs[-1]
     # STRAIGHT/None: stay on the branch closest to where we were heading
     return min(runs, key=lambda r: abs((r[0] + r[1]) / 2.0 - prev_cx))
+
+
+def _target_x(run, nav_command, required, bias):
+    """
+    Where to aim WITHIN the chosen run — the other half of junction handling.
+
+    _pick_run only helps when the junction arms are SEPARATE runs, i.e. when
+    something non-drivable (grass, a kerb) sits between them. On an open paved
+    junction the tarmac is continuous: every band reports one wide run, so
+    LEFT, RIGHT and STRAIGHT all picked the same run, took its geometric
+    middle, and produced identical steering — the cart sailed straight through
+    every turn. That is what this fixes.
+
+    A turn command means: stop centring, move to that side of the corridor and
+    take the exit. So aim at a point offset from the commanded edge by the
+    clearance the cart needs (`required`, which is cart width + margin at this
+    band), then blend back toward the centre by `bias`.
+
+    The clearance term is what keeps this safe. It is measured from the edge
+    inward, so the aim point can never come closer to the boundary than the
+    cart needs, however wide the junction is. And when the run is only just
+    wide enough, the offset edge point IS the centre — the bias term vanishes
+    on its own and a narrow path keeps centring exactly as before. No width
+    threshold to tune.
+    """
+    lo, hi = run
+    center = (lo + hi) / 2.0
+    if nav_command not in ("LEFT", "RIGHT") or bias <= 0.0:
+        return center
+    if hi - lo <= required:
+        return center  # no room to move over; hugging would clip the boundary
+    half = required / 2.0
+    edge = (lo + half) if nav_command == "LEFT" else (hi - half)
+    return center + bias * (edge - center)
 
 
 class SegPilot:

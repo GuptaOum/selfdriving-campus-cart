@@ -791,6 +791,14 @@ SEG_MASK_CLOSE_PX = 9           # morphological closing kernel (mask pixels).
                                 # those shatter into strips too narrow to pass
                                 # the width test and the cart refuses to move.
                                 # Raise for bigger gaps; 0 disables.
+SEG_JUNCTION_BIAS = 0.7         # how hard a LEFT/RIGHT nav command pulls the
+                                # aim point to that side of a WIDE corridor.
+                                # 0 = ignore the command and stay centred (the
+                                # old behaviour: the cart drove straight
+                                # through open junctions); 1 = hug the edge at
+                                # the bare cart-plus-margin clearance. On a
+                                # path only as wide as the cart needs this has
+                                # no effect at all, by construction.
 SEG_THROTTLE_CRUISE = 0.30      # throttle when corridor clear to the horizon
 SEG_THROTTLE_CREEP = 0.16       # throttle when corridor short / crossing breaker
 
