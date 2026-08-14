@@ -13,8 +13,12 @@ Produces:
   exported_models/yolov8n_ncnn_model/              (NCNN export for the Pi)
 
 Usage:
-    pip install transformers torch onnx onnxruntime ultralytics
+    pip install -r requirements-dev.txt
     python export_models.py [--skip-seg] [--skip-yolo]
+
+On Windows, run it with PYTHONIOENCODING=utf-8 — torch's ONNX exporter prints
+a unicode tick on success and the default cp1252 console cannot encode it,
+which crashes the script AFTER the model has already been written.
 """
 import argparse
 import json

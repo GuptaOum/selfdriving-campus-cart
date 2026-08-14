@@ -1013,7 +1013,9 @@ def add_campus_autonomy(V, cfg):
 
     if getattr(cfg, 'HAVE_BREAKER_DETECT', True):
         from parts.breaker_detect import BreakerDetect
-        V.add(BreakerDetect(), inputs=['cam/image_array'],
+        # the mask matters here: without it, roadside grass reads as
+        # breaker paint and the cart creeps constantly
+        V.add(BreakerDetect(), inputs=['cam/image_array', 'seg/mask'],
               outputs=['breaker/active'])
 
     if have_yolo:

@@ -18,6 +18,8 @@ opencv-python
 torch                  # SegFormer export only; never installed on the Pi
 transformers           # pulls the pretrained SegFormer checkpoint
 onnx
+onnxscript             # torch.onnx.export requires this from torch 2.6 on;
+                       # without it export_models.py dies with ModuleNotFoundError
 onnxruntime            # also does the INT8 dynamic quantization
 ultralytics            # YOLOv8n download + NCNN export
 

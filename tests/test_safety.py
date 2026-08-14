@@ -301,8 +301,25 @@ check("breaker at the bumper triggers creep", bd.run(near))
 bd.run(np.full((240, 320, 3), 110, np.uint8))
 check("creep latches while wheels cross", bd.run(None))
 
+# Roadside grass is a near-perfect decoy: dry golden verge reads as breaker
+# paint. On real rural footage this fired on 71% of frames until the search
+# was confined to drivable ground. A breaker is painted ON THE ROAD.
+verge = np.full((240, 320, 3), 110, np.uint8)
+verge[:, :90] = (60, 170, 200)          # golden grass left
+verge[:, 230:] = (60, 170, 200)         # and right
+# the carriageway, with verges either side excluded
+road_only = np.zeros((240, 320), np.uint8)
+road_only[:, 20:300] = 1
+check("grass verges are ignored once the drivable mask is supplied",
+      not detect_breaker(verge, drivable_mask=road_only)[0])
+
+# a real striped breaker spans the carriageway and must survive the filter
+check("a real breaker on the road survives the mask filter",
+      detect_breaker(striped(y0=205), drivable_mask=road_only)[0])
+
 try:
     detect_breaker(np.zeros((4, 4, 3), np.uint8))
+    detect_breaker(np.zeros((4, 4, 3), np.uint8), drivable_mask=np.ones((4, 4), np.uint8))
     check("degenerate input does not raise", True)
 except Exception as exc:                                    # noqa: BLE001
     check("degenerate input does not raise", False, str(exc))
