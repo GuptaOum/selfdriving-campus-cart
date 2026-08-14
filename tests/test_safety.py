@@ -604,6 +604,37 @@ check("a left-bearing return marks the left side",
 
 
 # =====================================================================
+section("unobserved ground is not blocked ground")
+# =====================================================================
+# A forward camera cannot see the ground at its own bumper — the nearest
+# visible point is metres out. Reading those empty cells as obstacles made
+# every arc collide at range zero: the cart sat still reporting "blocked"
+# when it actually meant "no data here". Caught on real dashcam footage.
+
+bp = make_planner()
+# a realistic forward-camera homography: the image maps to ground BEYOND the
+# bumper, exactly like a real mount — the near strip is never imaged
+bp.homography = cv2.getPerspectiveTransform(
+    np.float32([[20, 250], [236, 250], [150, 140], [106, 140]]),
+    np.float32([[0.6, 1.2], [0.6, -1.2], [2.8, -1.2], [2.8, 1.2]]))
+tiny = np.ones((256, 256), np.uint8)          # everything the camera sees is drivable
+g = bp.build_grid(tiny)
+check("grid is not all-blocked when the view is all-drivable", g.mean() > 0.5,
+      f"{100*g.mean():.0f}% free")
+check("build_grid records which cells were actually imaged",
+      hasattr(bp, "observed") and bp.observed.shape == g.shape)
+check("cells outside the camera's view are free, not blocked",
+      g[bp.observed == 0].all() if (bp.observed == 0).any() else True)
+
+# and a genuinely blocked observed cell must still read blocked
+half = np.ones((256, 256), np.uint8); half[:, :128] = 0
+g2 = bp.build_grid(half)
+blocked_and_seen = ((g2 == 0) & (bp.observed == 1)).sum()
+check("observed non-drivable ground still blocks", blocked_and_seen > 0,
+      f"{blocked_and_seen} cells")
+
+
+# =====================================================================
 section("tracking and predictive planning")
 # =====================================================================
 # Blocking everywhere a moving obstacle MIGHT go would make anyone walking

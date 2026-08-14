@@ -149,6 +149,19 @@ class LocalPlanner:
 
         Returns a uint8 array, 1 = free, 0 = blocked, with row 0 nearest the
         cart and column 0 on its far left.
+
+        UNOBSERVED IS NOT BLOCKED. A forward-facing camera cannot see the
+        ground right in front of the bumper — the nearest visible point is
+        typically a couple of metres out, and everything closer than that
+        falls outside the image entirely. Treating those cells as obstacles
+        makes every candidate arc collide at range zero and the cart never
+        moves, which looks exactly like "the path is blocked" while actually
+        meaning "I have no data here".
+
+        So cells the camera never saw are marked FREE, and guarding that zone
+        is delegated to the layer that can actually sense it: the ultrasonic
+        array, which writes real measurements into the same grid and covers
+        precisely the near field the camera misses.
         """
         # warp straight into grid resolution; the homography maps image pixels
         # to ground metres, and the scale matrix maps metres to grid cells
@@ -160,7 +173,12 @@ class LocalPlanner:
         m = scale @ self.homography
         grid = cv2.warpPerspective(mask, m, (self.cols, self.rows),
                                    flags=cv2.INTER_NEAREST)
-        return (grid > 0).astype(np.uint8)
+        # warp a solid frame the same way to learn which cells were imaged
+        seen = cv2.warpPerspective(np.ones_like(mask), m,
+                                   (self.cols, self.rows),
+                                   flags=cv2.INTER_NEAREST)
+        self.observed = (seen > 0).astype(np.uint8)
+        return ((grid > 0) | (seen == 0)).astype(np.uint8)
 
     def inflate(self, grid, extra_blocked=None):
         """
