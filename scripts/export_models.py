@@ -32,17 +32,40 @@ SEGFORMER_MODEL_ID = "segments-tobias/segformer-b0-finetuned-segments-sidewalk"
 # These are the dataset's real strings — the "flat-" prefix is part of the name.
 # Full list: https://huggingface.co/datasets/segments/sidewalk-semantic
 # Matching is case-insensitive because some checkpoints capitalise them.
-DRIVABLE_CLASS_NAMES = [
-    "flat-road",
-    "flat-sidewalk",
-    "flat-crosswalk",
-    "flat-cyclinglane",
-    "flat-parkingdriveway",
-    # deliberately NOT drivable:
-    #   flat-curb      — the raised edge; driving onto it beaches a 1/8 cart
-    #   flat-railtrack — rails
-    #   nature-terrain — grass/soil shoulder; soft, the cart sinks and strands
-]
+# Choose with --profile. Default is footpath.
+#
+# WHY THERE ARE TWO. Including the road classes merges the footpath and the
+# street beside it into ONE continuous corridor. The band centroids then land
+# between the two and the cart steers off the path toward traffic. Measured on
+# bench footage of two campuses: mean steering -0.370 on a sidewalk that should
+# read ~0.0, and the same clip with no street in view came back to -0.009. The
+# mask was correct both times — grass and kerbs were excluded properly. It is
+# the class list that decides where the corridor ends.
+DRIVABLE_PROFILES = {
+    # The cart stays on pedestrian ground. Use this for any route that has a
+    # footpath, which is the normal campus case.
+    "footpath": [
+        "flat-sidewalk",
+        "flat-crosswalk",    # a footpath continues across a road at a crossing
+        "flat-cyclinglane",  # campus cycle lanes are legitimate cart route
+    ],
+    # For campus interiors where an internal road IS the only route and there
+    # is no footpath at all. Only pick this where you accept the cart sharing a
+    # carriageway — and re-check steering on that route before trusting it.
+    "road": [
+        "flat-sidewalk",
+        "flat-crosswalk",
+        "flat-cyclinglane",
+        "flat-road",
+        "flat-parkingdriveway",
+    ],
+}
+DEFAULT_PROFILE = "footpath"
+
+# deliberately NOT drivable in either profile:
+#   flat-curb      — the raised edge; driving onto it beaches a 1/8 cart
+#   flat-railtrack — rails
+#   nature-terrain — grass/soil shoulder; soft, the cart sinks and strands
 
 # Unpaved and ambiguous ground. Campus sand/dirt paths often land in
 # "void-ground" rather than any flat-* class, so if Stage 2 shows your unpaved
@@ -54,7 +77,7 @@ UNPAVED_CLASS_NAMES = ["void-ground"]
 
 SEG_INPUT_SIZE = 256  # square input on the Pi; keep in sync with myconfig.py
 
-def export_segformer():
+def export_segformer(profile=DEFAULT_PROFILE):
     import torch
     from transformers import SegformerForSemanticSegmentation
 
@@ -64,7 +87,9 @@ def export_segformer():
 
     id2label = {int(k): v for k, v in model.config.id2label.items()}
 
-    wanted = {n.lower() for n in DRIVABLE_CLASS_NAMES}
+    class_names = DRIVABLE_PROFILES[profile]
+    print(f"\nDrivable profile: {profile} -> {class_names}")
+    wanted = {n.lower() for n in class_names}
     if INCLUDE_UNPAVED:
         wanted |= {n.lower() for n in UNPAVED_CLASS_NAMES}
     drivable_ids = [i for i, name in id2label.items() if name.lower() in wanted]
@@ -78,14 +103,16 @@ def export_segformer():
     # debugging a typo. Fail here instead.
     if not drivable_ids:
         raise SystemExit(
-            "\nERROR: no class name in DRIVABLE_CLASS_NAMES matched this "
-            "checkpoint's labels (listed above). Edit DRIVABLE_CLASS_NAMES at "
+            f"\nERROR: no class name in profile '{profile}' matched this "
+            "checkpoint's labels (listed above). Edit DRIVABLE_PROFILES at "
             "the top of this script to use the exact strings shown.")
 
     labels_path = OUT_DIR / "segformer_labels.json"
+    # profile is recorded so a labels file on the Pi can be identified later —
+    # "which ground did I export this one to accept?" is otherwise a guess.
     labels_path.write_text(json.dumps(
         {"id2label": id2label, "drivable_ids": drivable_ids,
-         "input_size": SEG_INPUT_SIZE}, indent=2))
+         "input_size": SEG_INPUT_SIZE, "profile": profile}, indent=2))
     print(f"\nWrote {labels_path}")
     print(f"  drivable ids: {drivable_ids}")
     print(f"  = {[id2label[i] for i in drivable_ids]}")
@@ -121,11 +148,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-seg", action="store_true")
     ap.add_argument("--skip-yolo", action="store_true")
+    ap.add_argument("--profile", choices=sorted(DRIVABLE_PROFILES),
+                    default=DEFAULT_PROFILE,
+                    help="which ground counts as drivable; 'footpath' keeps "
+                         "the cart off the road, 'road' allows carriageway "
+                         "routes that have no footpath")
     args = ap.parse_args()
 
     OUT_DIR.mkdir(exist_ok=True)
     if not args.skip_seg:
-        export_segformer()
+        export_segformer(args.profile)
     if not args.skip_yolo:
         export_yolo()
     print("\nDone. Copy exported_models/ to the Pi.")
