@@ -229,6 +229,54 @@ check("_runs finds contiguous segments",
 
 
 # =====================================================================
+section("ground-plane calibration is actually checked")
+# =====================================================================
+# Four correspondences fit a homography EXACTLY, so reprojection error is
+# always ~0 and cannot detect a bad calibration. It used to be reported as
+# accuracy, which called a broken calibration perfect. These are the checks
+# that replaced it — the planner compares gaps against a 28 cm cart, so a
+# silently wrong homography makes its clearance maths meaningless.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from calibrate_ground_plane import sanity_problems          # noqa: E402
+
+_G = [(0.5, 0.75), (0.5, -0.75), (2.5, -0.75), (2.5, 0.75)]
+_OK = [(150.0, 460.0), (490.0, 460.0), (390.0, 300.0), (250.0, 300.0)]
+
+check("correct clicks raise no complaint", not sanity_problems(_OK, _G))
+check("left/right swap is caught",
+      bool(sanity_problems([_OK[1], _OK[0], _OK[2], _OK[3]], _G)))
+check("near/far swap is caught",
+      bool(sanity_problems([_OK[3], _OK[2], _OK[1], _OK[0]], _G)))
+check("a crossing click order is caught",
+      bool(sanity_problems([_OK[0], _OK[2], _OK[1], _OK[3]], _G)))
+
+# A plain misclick keeps the ordering valid, so geometry cannot see it — only
+# an independent fifth marker can. This asserts that gap is real, so nobody
+# later assumes the geometry check is sufficient on its own.
+_shift = list(_OK); _shift[2] = (360.0, 310.0)
+check("a 30px misclick is NOT caught by geometry alone",
+      not sanity_problems(_shift, _G))
+
+_H_true = cv2.findHomography(np.array(_OK, np.float32),
+                             np.array(_G, np.float32))[0]
+_v_img = cv2.perspectiveTransform(np.array([[[1.5, 0.0]]], np.float32),
+                                  np.linalg.inv(_H_true))[0][0]
+
+
+def _verify_cm(clicks):
+    H = cv2.findHomography(np.array(clicks, np.float32),
+                           np.array(_G, np.float32))[0]
+    got = cv2.perspectiveTransform(np.array([[_v_img]], np.float32), H)[0][0]
+    return 100.0 * float(np.hypot(got[0] - 1.5, got[1] - 0.0))
+
+
+check("fifth point reads ~0 on a good calibration", _verify_cm(_OK) < 1.0,
+      f"{_verify_cm(_OK):.2f} cm")
+check("fifth point catches the misclick geometry missed",
+      _verify_cm(_shift) > 5.0, f"{_verify_cm(_shift):.2f} cm")
+
+
+# =====================================================================
 section("textured surfaces (grass pavers, dappled shade)")
 # =====================================================================
 # Half the area of a turf block is grass. Without mask closing the corridor
