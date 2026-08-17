@@ -31,7 +31,7 @@ class SegEngine:
                  bands=5, roi_top=0.4,
                  corridor_frac_bottom=0.28,
                  throttle_cruise=0.30, throttle_creep=0.16,
-                 mask_close_px=9, junction_bias=0.7):
+                 mask_close_px=9, junction_bias=0.7, max_steer_rate=1.2):
         """
         :param onnx_path: segformer_sidewalk_int8.onnx
         :param labels_path: segformer_labels.json (from export_models.py)
@@ -53,6 +53,10 @@ class SegEngine:
                toward that side of a wide corridor, 0 (ignore the command) to
                1 (hug the edge at minimum clearance). Only matters where the
                corridor is wider than the cart needs; see _target_x.
+        :param max_steer_rate: ceiling on how fast steering may change, in
+               steering units per SECOND. Per second and not per frame because
+               inference rate varies with load, and a per-frame limit would
+               silently tighten whenever the Pi got busy. 0 disables.
         """
         import onnxruntime as ort  # deferred: not needed for unit tests of steering
 
@@ -82,6 +86,8 @@ class SegEngine:
         self.throttle_cruise, self.throttle_creep = throttle_cruise, throttle_creep
         self.mask_close_px = mask_close_px
         self.junction_bias = junction_bias
+        self.max_steer_rate = max_steer_rate
+        self._prev_angle = 0.0
         self._close_kernel = (
             cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                       (mask_close_px, mask_close_px))
@@ -156,6 +162,9 @@ class SegEngine:
 
         if not centroids:
             self._prev_offset = 0.0
+            # not rate-limited: a blocked corridor must reach the arbiter at
+            # once, and it is paired with zero throttle anyway
+            self._prev_angle = 0.0
             return 0.0, 0.0, False, {"centroids": [], "deepest_clear": -1}
 
         # near bands dominate steering; far bands refine it
@@ -172,12 +181,33 @@ class SegEngine:
 
         angle = float(np.clip(self.kp * offset + d_term, -1.0, 1.0))
 
+        # Slew limit. Measured on campus footage: every full-lock command was a
+        # SINGLE isolated frame, always where the mask had thinned to one or
+        # two surviving bands (9 of 599 frames, jumps up to 1.8 between
+        # consecutive updates, each recovering immediately). One band means one
+        # centroid decides the whole steering angle, and the D term then
+        # amplifies the jump. On the cart that is a violent twitch of the
+        # wheels on evidence that was gone by the next frame.
+        #
+        # Capping the RATE rather than the angle keeps genuine steering intact
+        # — a junction turn of ~0.5 still completes well inside half a second —
+        # while a one-frame outlier can only move the wheels a little before
+        # the next frame corrects it. It deliberately does not smooth or
+        # average: a sustained turn reaches full lock unimpeded, because every
+        # frame keeps pushing the same way.
+        if self.max_steer_rate and dt and dt > 1e-3:
+            max_delta = self.max_steer_rate * dt
+            angle = float(np.clip(angle, self._prev_angle - max_delta,
+                                  self._prev_angle + max_delta))
+        self._prev_angle = angle
+
         # throttle scales with how deep the corridor stays clear
         depth_frac = (deepest_clear + 1) / self.bands
         throttle = self.throttle_creep + (self.throttle_cruise - self.throttle_creep) * depth_frac
 
         debug = {"centroids": centroids, "deepest_clear": deepest_clear,
-                 "offset": offset, "centroid_frac": centroid_frac}
+                 "offset": offset, "centroid_frac": centroid_frac,
+                 "angle_raw": float(np.clip(self.kp * offset + d_term, -1, 1))}
         return angle, float(throttle), True, debug
 
 

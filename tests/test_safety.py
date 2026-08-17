@@ -47,13 +47,15 @@ def section(title):
     print(f"\n--- {title} ---")
 
 
-def make_engine(mask_close_px=9, junction_bias=0.7):
+def make_engine(mask_close_px=9, junction_bias=0.7, max_steer_rate=0.0):
     """A SegEngine with the steering parameters but no ONNX session."""
     e = SegEngine.__new__(SegEngine)
     e.kp, e.kd = 1.2, 0.0
     e.bands, e.roi_top = 5, 0.4
     e.corridor_frac_bottom = 0.28
     e.junction_bias = junction_bias
+    e.max_steer_rate = max_steer_rate     # off by default so the geometry
+    e._prev_angle = 0.0                   # tests measure geometry, not slew
     e.throttle_cruise, e.throttle_creep = 0.30, 0.16
     e._prev_offset, e._prev_time, e._prev_centroid_frac = 0.0, None, 0.5
     e.mask_close_px = mask_close_px
@@ -151,6 +153,40 @@ check("turn command cannot invent a corridor",
 eng = make_engine(junction_bias=0.0)
 a0, _, _, _ = eng.steer_from_mask(wide, "LEFT")
 check("junction_bias=0 restores centring", abs(a0) < 0.05, f"a={a0:+.2f}")
+
+# --- slew limit: a single bad frame must not snap the wheels to full lock ---
+# a centred corridor to settle on, then a hard-right one the geometry wants a
+# large positive angle for
+centred = np.zeros((S, S), np.uint8); centred[:, 88:168] = 1
+hard = np.zeros((S, S), np.uint8); hard[:, 170:250] = 1
+eng = make_engine(max_steer_rate=0.0)
+eng.steer_from_mask(centred)                      # establish a previous angle
+a_unlimited, _, _, _ = eng.steer_from_mask(hard)
+
+eng = make_engine(max_steer_rate=1.2)
+eng.steer_from_mask(centred)
+time.sleep(0.05)                                   # a realistic short dt
+a_limited, _, _, _ = eng.steer_from_mask(hard)
+check("slew limit caps a one-frame jump", abs(a_limited) < abs(a_unlimited),
+      f"limited={a_limited:+.2f} unlimited={a_unlimited:+.2f}")
+
+# ...but a SUSTAINED turn must still reach the angle it wants
+eng = make_engine(max_steer_rate=1.2)
+eng.steer_from_mask(centred)
+for _ in range(12):
+    time.sleep(0.05)
+    a_sustained, _, _, _ = eng.steer_from_mask(hard)
+check("slew limit does not block a sustained turn",
+      abs(a_sustained - a_unlimited) < 0.05,
+      f"sustained={a_sustained:+.2f} target={a_unlimited:+.2f}")
+
+# a blocked corridor must report instantly, not ramp down through the limit
+eng = make_engine(max_steer_rate=1.2)
+eng.steer_from_mask(hard)
+time.sleep(0.05)
+a_block, t_block, c_block, _ = eng.steer_from_mask(np.zeros((S, S), np.uint8))
+check("blocked corridor is not rate limited",
+      (not c_block) and a_block == 0.0 and t_block == 0.0)
 
 eng = make_engine()
 full = np.zeros((S, S), np.uint8); full[:, 88:168] = 1

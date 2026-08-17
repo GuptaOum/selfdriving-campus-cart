@@ -799,6 +799,15 @@ SEG_JUNCTION_BIAS = 0.7         # how hard a LEFT/RIGHT nav command pulls the
                                 # the bare cart-plus-margin clearance. On a
                                 # path only as wide as the cart needs this has
                                 # no effect at all, by construction.
+SEG_MAX_STEER_RATE = 1.2        # max change in steering per SECOND. Stops a
+                                # single bad frame from snapping the wheels to
+                                # full lock: on campus footage every saturated
+                                # command was one isolated frame where the mask
+                                # had thinned to 1-2 bands, recovering by the
+                                # next. Per second, not per frame, so a busy Pi
+                                # does not silently tighten the limit. A real
+                                # turn is unaffected — it keeps pushing the same
+                                # way every frame. 0 disables.
 SEG_THROTTLE_CRUISE = 0.30      # throttle when corridor clear to the horizon
 SEG_THROTTLE_CREEP = 0.16       # throttle when corridor short / crossing breaker
 

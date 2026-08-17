@@ -30,6 +30,7 @@ Go/no-go gates:
   - all fine                       -> proceed to on-car integration
 """
 import argparse
+import csv
 import json
 import sys
 import time
@@ -163,6 +164,10 @@ def main():
     ap.add_argument("--homography", help="ground_plane.json — enables the planner, "
                                          "tracking and prediction")
     ap.add_argument("--out", help="write annotated video here")
+    ap.add_argument("--csv", help="write per-frame steering here. The summary "
+                                  "reports mean/min/max, which hides WHERE a "
+                                  "spike happened and what the mask looked "
+                                  "like when it did; this does not.")
     ap.add_argument("--show", action="store_true", help="live preview window")
     ap.add_argument("--every", type=int, default=1,
                     help="process every Nth frame (walk footage is oversampled)")
@@ -203,6 +208,17 @@ def main():
 
     seg_times, det_times, plan_times = [], [], []
     steers, stops, breakers, n, done = [], 0, 0, 0, 0
+
+    csv_f = csv_w = None
+    if args.csv:
+        csv_f = open(args.csv, "w", newline="")
+        csv_w = csv.writer(csv_f)
+        # bands/drivable are here because a spike is nearly always one of them
+        # collapsing: a pole splitting the corridor drops a band, a bad frame
+        # drops the drivable fraction. Without them a spike is just a number.
+        csv_w.writerow(["frame", "t_sec", "steer", "d_steer", "throttle",
+                        "clear", "bands", "drivable_frac", "breaker",
+                        "clear_m", "seg_ms"])
 
     while True:
         ok, frame = cap.read()
@@ -266,6 +282,16 @@ def main():
             source = "planner"
             bev = draw_bev(planner, grid, scores, steer, moving, frame.shape[0])
 
+        if csv_w:
+            csv_w.writerow([
+                n, f"{n / fps:.3f}", f"{angle:+.4f}",
+                f"{angle - (steers[-1] if steers else 0.0):+.4f}",
+                f"{throttle:.3f}", int(bool(clear)),
+                len(debug.get("centroids", [])), f"{float(mask.mean()):.4f}",
+                int(bool(breaker)),
+                "" if clear_m is None else f"{clear_m:.2f}",
+                f"{seg_times[-1]*1000:.0f}"])
+
         steers.append(angle)
         if not clear:
             stops += 1
@@ -287,6 +313,8 @@ def main():
                 break
 
     cap.release()
+    if csv_f:
+        csv_f.close()
     if writer:
         writer.release()
     if args.show:
