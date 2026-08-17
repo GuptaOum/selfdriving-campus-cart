@@ -137,8 +137,11 @@ class SegEngine:
         roi_y0 = int(h * self.roi_top)
         band_h = (h - roi_y0) // self.bands
 
-        centroids = []          # (band_idx, centroid_x_frac, run_width_px)
-        deepest_clear = -1      # highest band index (nearest=0) whose corridor fits
+        # Pass 1: find the corridor in each band. The nav command is applied in
+        # pass 2, because whether an arm exists can only be judged once the
+        # whole set of bands is known — and that decides whether to bias at all.
+        band_runs = []          # [(band_idx, (lo, hi))] nearest first
+        required_px = {}
         for b in range(self.bands):
             # band 0 = bottom (nearest), band N-1 = top of ROI (farthest)
             y1 = h - b * band_h
@@ -156,7 +159,22 @@ class SegEngine:
                 break
 
             run = _pick_run(runs, nav_command, self._prev_centroid_frac * w)
-            cx = _target_x(run, nav_command, required, self.junction_bias)
+            band_runs.append((b, run))
+            required_px[b] = required
+
+        # Pass 2: only bias toward a side the camera can actually see open.
+        # If GPS says LEFT while the mask shows no left arm yet, the honest
+        # answer is to keep driving straight and re-check next frame, not to
+        # aim off the path on the strength of a several-metre position fix.
+        arms = detect_arms(band_runs, required_px.get(0, 0.0), w)
+        armed = (nav_command in ("LEFT", "RIGHT")
+                 and (arms[nav_command.lower()] or arms["open_ground"]))
+        effective_cmd = nav_command if armed else None
+
+        centroids = []          # (band_idx, centroid_x_frac, run_width_px)
+        deepest_clear = -1      # highest band index (nearest=0) whose corridor fits
+        for b, run in band_runs:
+            cx = _target_x(run, effective_cmd, required_px[b], self.junction_bias)
             centroids.append((b, cx / w, run[1] - run[0]))
             deepest_clear = b
 
@@ -207,7 +225,8 @@ class SegEngine:
 
         debug = {"centroids": centroids, "deepest_clear": deepest_clear,
                  "offset": offset, "centroid_frac": centroid_frac,
-                 "angle_raw": float(np.clip(self.kp * offset + d_term, -1, 1))}
+                 "angle_raw": float(np.clip(self.kp * offset + d_term, -1, 1)),
+                 "arms": arms, "nav_command": nav_command, "armed": armed}
         return angle, float(throttle), True, debug
 
 
@@ -233,6 +252,51 @@ def _pick_run(runs, nav_command, prev_cx):
         return runs[-1]
     # STRAIGHT/None: stay on the branch closest to where we were heading
     return min(runs, key=lambda r: abs((r[0] + r[1]) / 2.0 - prev_cx))
+
+
+def detect_arms(band_runs, required_px, width):
+    """
+    Which side openings actually exist, judged from the mask alone.
+
+    GPS decides WHICH way to turn; it is a poor judge of WHEN. It fires the
+    command on distance to the waypoint, and with several metres of error that
+    lands early or late — early means biasing toward an arm that is not in
+    sight yet, which on a 5 m path aims the cart at the verge.
+
+    The camera settles the timing. Take the farthest band that still has a
+    corridor: that is the path continuing onward. Anything the NEAREST band
+    reaches beyond that corridor's edges is ground that opens to the side —
+    an arm. On a straight path the near band is only slightly wider than the
+    far one (perspective), so nothing registers.
+
+    :param band_runs: [(band_index, (lo, hi))] nearest first, as found by
+           steer_from_mask after the width filter
+    :param required_px: corridor width the cart needs at the bottom band
+    :returns: {'left': bool, 'right': bool, 'left_px': float, 'right_px': float}
+    """
+    none = {"left": False, "right": False, "open_ground": False,
+            "left_px": 0.0, "right_px": 0.0}
+    if len(band_runs) < 2:
+        return none  # nothing to compare against; one band proves nothing
+
+    (_, (near_lo, near_hi)) = band_runs[0]
+    (_, (far_lo, far_hi)) = band_runs[-1]
+
+    left_px = far_lo - near_lo     # near band reaches further left than onward
+    right_px = near_hi - far_hi
+
+    # An arm has to be wide enough to drive into, or it is mask noise or the
+    # ordinary perspective flare of a straight path.
+    #
+    # open_ground is the other way a turn can be safe. On a plaza the ground is
+    # wide the whole way out, so nothing stands out as an "arm" — but there is
+    # room to move over in any direction, which is exactly when a turn command
+    # should be obeyed. Without this the gate would refuse to turn precisely
+    # where turning is easiest.
+    return {"left": left_px >= required_px,
+            "right": right_px >= required_px,
+            "open_ground": (far_hi - far_lo) >= 2.0 * required_px,
+            "left_px": float(left_px), "right_px": float(right_px)}
 
 
 def _target_x(run, nav_command, required, bias):

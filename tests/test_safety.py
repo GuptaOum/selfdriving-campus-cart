@@ -154,6 +154,33 @@ eng = make_engine(junction_bias=0.0)
 a0, _, _, _ = eng.steer_from_mask(wide, "LEFT")
 check("junction_bias=0 restores centring", abs(a0) < 0.05, f"a={a0:+.2f}")
 
+# --- the camera decides WHEN to turn, GPS only decides which way ---
+# A corridor that runs straight ahead with no side opening: a LEFT command
+# arrives (GPS fired early, several metres of error) but there is nowhere to
+# turn yet, so the cart must keep centring rather than aim at the verge.
+corridor = np.zeros((S, S), np.uint8); corridor[:, 88:168] = 1
+eng = make_engine(); a_early, _, c_early, d_early = eng.steer_from_mask(corridor, "LEFT")
+eng = make_engine(); a_plain, _, _, _ = eng.steer_from_mask(corridor)
+check("no arm in sight: turn command is not obeyed yet",
+      c_early and not d_early["armed"] and abs(a_early - a_plain) < 0.05,
+      f"cmd={a_early:+.2f} plain={a_plain:+.2f}")
+
+# the same corridor, now with a genuine left opening near the cart
+with_arm = corridor.copy()
+with_arm[S - 60:, 4:168] = 1
+eng = make_engine(); a_arm, _, _, d_arm = eng.steer_from_mask(with_arm, "LEFT")
+check("left arm visible: the command is obeyed",
+      d_arm["arms"]["left"] and d_arm["armed"] and a_arm < a_plain - 0.1,
+      f"cmd={a_arm:+.2f} plain={a_plain:+.2f}")
+check("a left arm is not mistaken for a right one",
+      not d_arm["arms"]["right"])
+
+# open plaza: no arm stands out, but there is room to move — obey the command
+eng = make_engine(); a_open, _, _, d_open = eng.steer_from_mask(wide, "LEFT")
+check("open ground obeys the command without a distinct arm",
+      d_open["arms"]["open_ground"] and d_open["armed"] and a_open < -0.2,
+      f"a={a_open:+.2f}")
+
 # --- slew limit: a single bad frame must not snap the wheels to full lock ---
 # a centred corridor to settle on, then a hard-right one the geometry wants a
 # large positive angle for
