@@ -46,6 +46,12 @@ from donkeycar.utils import *
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+# What UltrasonicArray.run_threaded returns, in order. Phase 2's
+# add_campus_autonomy lists these literally; Phase 1's add_sonar reuses this.
+SONAR_BASE_OUTPUTS = ['sonar/left', 'sonar/center', 'sonar/right',
+                      'sonar/stop', 'sonar/bias', 'sonar/healthy',
+                      'sonar/scan']
+
 
 def drive(cfg, model_path=None, use_joystick=False, model_type=None,
           camera_type='single', meta=[]):
@@ -71,6 +77,13 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
             model_type = "behavior"
         else:
             model_type = cfg.DEFAULT_MODEL_TYPE
+
+    # Teach the model factory about 'fusion' before anything asks for a model.
+    # Guarded because importing it pulls in TensorFlow, which is a slow and
+    # pointless import on the Pi when driving a plain linear model.
+    if 'fusion' in (model_type or ''):
+        from parts.sensor_pilot import register_model_type
+        register_model_type(cfg)
 
     # Initialize car
     V = dk.vehicle.Vehicle()
@@ -268,6 +281,9 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
     #IMU
     add_imu(V, cfg)
 
+    # Sonar — recorded into the tub for cloning, independent of Phase 2.
+    add_sonar(V, cfg)
+
 
     # Use the FPV preview, which will show the cropped image output, or the full frame.
     if cfg.USE_FPV:
@@ -386,6 +402,18 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
                   outputs=['imu_array'])
 
             inputs = ['cam/image_array', 'imu_array']
+
+        elif model_type == "fusion":
+            # Same keys, same order, same normalisation as training — the
+            # vectorizer and the model's x_transform both call
+            # sensor_pilot.normalize(), so there is one scaling code path.
+            from parts.sensor_pilot import SensorVectorizer, sensor_keys
+            keys = sensor_keys(cfg)
+            assert keys, ('model_type "fusion" needs a sensor vector: set '
+                          'HAVE_ULTRASONIC = True (and/or HAVE_IMU) in myconfig.py')
+            V.add(SensorVectorizer(cfg), inputs=keys, outputs=['sensor_array'])
+            inputs = ['cam/image_array', 'sensor_array']
+
         else:
             inputs = ['cam/image_array']
 
@@ -515,6 +543,20 @@ def drive(cfg, model_path=None, use_joystick=False, model_type=None,
 
         types +=['float', 'float', 'float',
            'float', 'float', 'float']
+
+    # Sonar distances, raw cm. Recorded whenever the sensors are present, even
+    # when training a camera-only model — it costs one float per sensor per
+    # frame and means the camera-only vs fusion ablation can be run later from
+    # the SAME tubs instead of a second collection run.
+    # Condition must match add_sonar exactly: under Phase 2 the per-sensor keys
+    # are never published, and recording keys nothing writes fills the tub with
+    # nulls that then poison training.
+    if (getattr(cfg, 'HAVE_ULTRASONIC', False)
+            and not getattr(cfg, 'USE_CAMPUS_AUTONOMY', False)):
+        from parts.sensor_pilot import sonar_keys
+        _sonar = sonar_keys(cfg)
+        inputs += _sonar
+        types += ['float'] * len(_sonar)
 
     # rbx
     if cfg.DONKEY_GYM:
@@ -946,6 +988,34 @@ def add_imu(V, cfg):
         V.add(imu, outputs=['imu/acl_x', 'imu/acl_y', 'imu/acl_z',
                             'imu/gyr_x', 'imu/gyr_y', 'imu/gyr_z'], threaded=True)
     return imu
+
+
+#
+# Sonar setup for Phase 1 (behavioural cloning).
+#
+# This deliberately does NOT go through add_campus_autonomy: Phase 1 needs the
+# distances in the tub without loading any of the Phase 2 stack. When Phase 2
+# IS enabled it already creates the array, so this skips to avoid two objects
+# driving the same GPIO pins.
+#
+def add_sonar(V, cfg):
+    if not getattr(cfg, 'HAVE_ULTRASONIC', False):
+        return None
+    if getattr(cfg, 'USE_CAMPUS_AUTONOMY', False):
+        return None  # add_campus_autonomy owns the array in that mode
+
+    from parts.ultrasonic import UltrasonicArray
+    from parts.sensor_pilot import SonarDistances, sonar_keys
+
+    sonar = UltrasonicArray(pins=cfg.ULTRASONIC_PINS,
+                            stop_cm=cfg.SONAR_STOP_CM,
+                            caution_cm=cfg.SONAR_CAUTION_CM)
+    V.add(sonar, outputs=SONAR_BASE_OUTPUTS, threaded=True)
+    # Per-sensor distances for the tub / fusion model. Separate part so
+    # ultrasonic.py keeps its existing three-output contract untouched.
+    V.add(SonarDistances(sonar, cfg), outputs=sonar_keys(cfg))
+    logger.info("sonar enabled for cloning: %s", sonar_keys(cfg))
+    return sonar
 
 
 #

@@ -848,6 +848,31 @@ ULTRASONIC_PINS = {"left":   (5, 6, 30),  "cleft":  (19, 26, 10),
 SONAR_STOP_CM = 30.0            # any sensor closer -> hard throttle cut
 SONAR_CAUTION_CM = 80.0         # center closer -> creep + steer to open side
 
+# -- sensor fusion for behavioural cloning (Phase 1) -------------------------
+# With HAVE_ULTRASONIC = True the raw distances are written into every tub
+# alongside user/angle and user/throttle, whatever model you train. That is
+# deliberate: the same tubs then train BOTH `linear` (camera only) and
+# `fusion` (camera + sensors), so the ablation is one extra training run
+# rather than a second data-collection campaign.
+#
+#   python train.py --tubs data/ --model models/linear.h5 --type linear
+#   python train.py --tubs data/ --model models/fusion.h5 --type fusion
+#
+# The sensor vector is built from config: sonar (one float per entry in
+# ULTRASONIC_PINS) then, if HAVE_IMU is also True, the six IMU channels.
+# Changing either flag changes the vector width, so a model trained under one
+# setting will NOT load under another. Retrain when you change it.
+#
+# NOTE ON RATE: a 4-sensor sweep runs at roughly 4 Hz while the camera loop
+# runs at 20 Hz, so each distance is held across about five frames. The model
+# sees a staircase, not a smooth signal. That is honest — it is what the
+# sensor actually provides — but do not expect sonar to drive fast reflexes.
+SONAR_MAX_CM = 400.0            # normalisation ceiling; also the "clear" value
+# IMU scaling, only used when HAVE_IMU is True. Match your sensor's full-scale
+# range or the branch sees mostly saturated inputs.
+IMU_ACCEL_SCALE = 20.0          # m/s^2 at +-2g
+IMU_GYRO_SCALE = 250.0          # deg/s
+
 # -- GPS navigation + geofence (u-blox on USB-TTL via gpsd) -------------------
 # Size the radii to your module's real error, measured on your campus — a
 # junction radius smaller than your position error fires the turn command in

@@ -5,21 +5,28 @@ Basic usage should feel familiar: train.py --tubs data/ --model models/mypilot.h
 
 Usage:
     train.py [--tubs=tubs] (--model=<model>)
-    [--type=(linear|inferred|tensorrt_linear|tflite_linear)]
+    [--type=(linear|categorical|fusion|inferred|tensorrt_linear|tflite_linear)]
     [--comment=<comment>]
 
 Options:
     -h --help              Show this screen.
+
+`fusion` trains the camera + sensor-vector model (see parts/sensor_pilot.py).
+It reads the sonar/IMU columns already stored in the tubs, so the same tubs
+train both `linear` and `fusion` — which is what makes the ablation honest.
 """
 
 from docopt import docopt
 import donkeycar as dk
 from donkeycar.pipeline.training import train
+from parts.sensor_pilot import register_model_type
 
 
 def main():
     args = docopt(__doc__)
     cfg = dk.load_config()
+    # must happen before train() resolves the model type
+    register_model_type(cfg)
     tubs = args['--tubs']
     model = args['--model']
     model_type = args['--type']
