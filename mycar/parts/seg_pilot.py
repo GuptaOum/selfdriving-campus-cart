@@ -213,8 +213,21 @@ class SegEngine:
         # the next frame corrects it. It deliberately does not smooth or
         # average: a sustained turn reaches full lock unimpeded, because every
         # frame keeps pushing the same way.
+        # The allowance is scaled by how much of the mask agreed. A flat limit
+        # cannot tell a spike from a turn: at ~1.7 FPS an update is ~0.6 s, so
+        # any rate loose enough to let a junction turn through in one step is
+        # also loose enough to let a full-lock spike through. Measured, the two
+        # differ in EVIDENCE, not in size — spikes came from frames where only
+        # one or two bands survived (mean |steer| 0.524 at one band against
+        # 0.194 at two), while a real turn is seen by most of the bands at once.
+        #
+        # So a frame that sees the corridor at four or five depths may move the
+        # wheels the full allowance, and a frame resting on a single centroid
+        # gets a fifth of it. That is the difference between a firm turn and a
+        # twitch, and it costs nothing when the mask is healthy.
         if self.max_steer_rate and dt and dt > 1e-3:
-            max_delta = self.max_steer_rate * dt
+            confidence = len(centroids) / float(self.bands)
+            max_delta = self.max_steer_rate * confidence * dt
             angle = float(np.clip(angle, self._prev_angle - max_delta,
                                   self._prev_angle + max_delta))
         self._prev_angle = angle
