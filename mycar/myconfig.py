@@ -20,7 +20,10 @@
 # MAX_LOOPS = None        # the vehicle loop can abort after this many iterations, when given a positive integer.
 # 
 # #CAMERA
-CAMERA_TYPE = "PICAM"   # (PICAM|WEBCAM|CVCAM|CSIC|V4L|D435|MOCK|IMAGE_LIST)
+# CVCAM (OpenCV VideoCapture) for the USB webcam -- WEBCAM historically uses
+# pygame on this framework and is flakier on Linux (see project_hardware /
+# project_phase1_donkeycar memory).
+CAMERA_TYPE = "CVCAM"   # (PICAM|WEBCAM|CVCAM|CSIC|V4L|D435|MOCK|IMAGE_LIST)
 # IMAGE_W = 160
 # IMAGE_H = 120
 # IMAGE_DEPTH = 3         # default RGB=3, make 1 for mono
@@ -66,9 +69,14 @@ CAMERA_TYPE = "PICAM"   # (PICAM|WEBCAM|CVCAM|CSIC|V4L|D435|MOCK|IMAGE_LIST)
 # # (deprecated) "I2C_SERVO" uses PCA9685 servo controller to control a steering servo and an ESC, as in a standard RC car
 # #
 DRIVE_TRAIN_TYPE = "PWM_STEERING_THROTTLE"
-# NOTE: config.py's PWM_STEERING_THROTTLE dict (STEERING_LEFT_PWM, THROTTLE_FORWARD_PWM, etc.)
-# holds placeholder values. Run `donkey calibrate` and override PWM_STEERING_THROTTLE here
-# with your measured pulse values before driving on real hardware.
+# config.py's PWM_STEERING_THROTTLE dict holds PLACEHOLDER pulse values -- they
+# are for a different servo/ESC and will not drive this cart correctly. This
+# override block is active but the five *_PWM values below are still the
+# placeholders. Run `donkey calibrate --channel 1 --bus 1` (steering) and
+# `donkey calibrate --channel 0 --bus 1` (throttle) with wheels off the
+# ground, and replace every *_PWM value with what you measure before
+# recording or driving. See project_hardware / project_phase1_donkeycar
+# memory: this step blocks everything else in Phase 1.
 #
 # #
 # # PWM_STEERING_THROTTLE
@@ -77,20 +85,21 @@ DRIVE_TRAIN_TYPE = "PWM_STEERING_THROTTLE"
 # # Uses a PwmPin for steering (servo) and a second PwmPin for throttle (ESC)
 # # Base PWM Frequence is presumed to be 60hz; use PWM_xxxx_SCALE to adjust pulse with for non-standard PWM frequencies
 # #
-# PWM_STEERING_THROTTLE = {
-#     "PWM_STEERING_PIN": "PCA9685.1:40.1",   # PWM output pin for steering servo
-#     "PWM_STEERING_SCALE": 1.0,              # used to compensate for PWM frequency differents from 60hz; NOT for adjusting steering range
-#     "PWM_STEERING_INVERTED": False,         # True if hardware requires an inverted PWM pulse
-#     "PWM_THROTTLE_PIN": "PCA9685.1:40.0",   # PWM output pin for ESC
-#     "PWM_THROTTLE_SCALE": 1.0,              # used to compensate for PWM frequence differences from 60hz; NOT for increasing/limiting speed
-#     "PWM_THROTTLE_INVERTED": False,         # True if hardware requires an inverted PWM pulse
-#     "STEERING_LEFT_PWM": 460,               #pwm value for full left steering
-#     "STEERING_RIGHT_PWM": 290,              #pwm value for full right steering
-#     "THROTTLE_FORWARD_PWM": 500,            #pwm value for max forward throttle
-#     "THROTTLE_STOPPED_PWM": 370,            #pwm value for no movement
-#     "THROTTLE_REVERSE_PWM": 220,            #pwm value for max reverse throttle
-# }
-# 
+PWM_STEERING_THROTTLE = {
+    "PWM_STEERING_PIN": "PCA9685.1:40.1",   # PWM output pin for steering servo
+    "PWM_STEERING_SCALE": 1.0,              # used to compensate for PWM frequency differents from 60hz; NOT for adjusting steering range
+    "PWM_STEERING_INVERTED": False,         # True if hardware requires an inverted PWM pulse
+    "PWM_THROTTLE_PIN": "PCA9685.1:40.0",   # PWM output pin for ESC
+    "PWM_THROTTLE_SCALE": 1.0,              # used to compensate for PWM frequence differences from 60hz; NOT for increasing/limiting speed
+    "PWM_THROTTLE_INVERTED": False,         # True if hardware requires an inverted PWM pulse
+    "STEERING_LEFT_PWM": 460,               # PLACEHOLDER -- replace with your `donkey calibrate` measurement
+    "STEERING_RIGHT_PWM": 290,              # PLACEHOLDER -- replace with your `donkey calibrate` measurement
+    "THROTTLE_FORWARD_PWM": 500,            # PLACEHOLDER -- replace with your `donkey calibrate` measurement
+    "THROTTLE_STOPPED_PWM": 370,            # PLACEHOLDER -- replace with your `donkey calibrate` measurement
+    "THROTTLE_REVERSE_PWM": 220,            # PLACEHOLDER -- A2212 is a plane-style ESC (see project_hardware memory);
+                                             # confirm it actually has a reverse before relying on this value
+}
+
 # #
 # # I2C_SERVO (deprecated in favor of PWM_STEERING_THROTTLE)
 # #
@@ -582,9 +591,22 @@ ROI_CROP_LEFT = 0               # the number of rows of pixels to ignore on the 
 # USE_JOYSTICK_AS_DEFAULT = False      #when starting the manage.py, when True, will not require a --js option to use the joystick
 # JOYSTICK_MAX_THROTTLE = 0.5         #this scalar is multiplied with the -1 to 1 throttle value to limit the maximum throttle. This can help if you drop the controller or just don't need the full speed available.
 # JOYSTICK_STEERING_SCALE = 1.0       #some people want a steering that is less sensitve. This scalar is multiplied with the steering -1 to 1. It can be negative to reverse dir.
-# AUTO_RECORD_ON_THROTTLE = True      #if true, we will record whenever throttle is not zero. if false, you must manually toggle recording with some other trigger. Usually circle button on joystick.
+AUTO_RECORD_ON_THROTTLE = True      #if true, we will record whenever throttle is not zero. if false, you must manually toggle recording with some other trigger. Usually circle button on joystick.
 CONTROLLER_TYPE = 'ibus'             #(ps3|ps4|xbox|pigpio_rc|nimbus|wiiu|F710|rc3|MM1|custom|ibus) 'ibus' reads the FlySky RX over UART, see ibus_receiver.py
 USE_JOYSTICK_AS_DEFAULT = True       # so `manage.py drive` (no --js flag) uses the ibus controller, not the web joystick
+
+# manage.py always passes these explicitly to IBusReceiver -- they have no
+# fallback in donkeycar's own config.py, so CONTROLLER_TYPE = 'ibus' crashes
+# with AttributeError at drive time without every one of them defined here.
+# Values match IBusReceiver's own defaults (ibus_receiver.py) and the CH1
+# steering / CH2 throttle / CH5 override wiring in project_hardware memory.
+IBUS_SERIAL_PORT = '/dev/serial0'    # GPIO15 (RXD) -- iBUS owns this UART, GPS goes on USB-TTL instead
+IBUS_BAUDRATE = 115200
+IBUS_STEERING_CHANNEL = 0            # CH1, 0-indexed
+IBUS_THROTTLE_CHANNEL = 1            # CH2, 0-indexed
+IBUS_MODE_CHANNEL = 4                # CH5 -- the 3-position override switch, highest priority
+IBUS_MODE_USER_MAX = 1300            # raw channel value below this reads as 'user' (manual)
+IBUS_MODE_LOCAL_ANGLE_MAX = 1700     # below this reads as 'local_angle', at/above as 'local' (full autonomy)
 # USE_NETWORKED_JS = False            #should we listen for remote joystick control over the network?
 # NETWORK_JS_SERVER_IP = None         #when listening for network joystick control, which ip is serving this information
 # JOYSTICK_DEADZONE = 0.01            # when non zero, this is the smallest throttle before recording triggered.
