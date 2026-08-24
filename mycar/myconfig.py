@@ -479,18 +479,23 @@ DRIVE_TRAIN_TYPE = "PWM_STEERING_THROTTLE"
 # #           return self.blur.run(image)
 # #   ```
 # #
-# AUGMENTATIONS = []         # changes to image only applied in training to create
-#                            # more variety in the data.
-# TRANSFORMATIONS = []       # changes applied _before_ training augmentations,
-#                            # such that augmentations are applied to the transformed image,
+# Applied ONLY during training, in memory, on top of the tub frames -- the
+# recorded JPEGs on disk are never touched. This is what makes it safe: the
+# same tub can be re-trained with a different AUGMENTATIONS list later, or
+# with none at all for the camera-only ablation baseline, without re-recording
+# anything. Never applied at drive time (see TRANSFORMATIONS below for what
+# runs on both sides).
+AUGMENTATIONS = ['MULTIPLY', 'BLUR']  # 'MULTIPLY' = brightness jitter, 'BLUR' = gaussian blur
+TRANSFORMATIONS = ['CROP']  # changes applied _before_ training augmentations,
+                            # such that augmentations are applied to the transformed image,
 # POST_TRANSFORMATIONS = []  # transformations applied _after_ training augmentations,
 #                            # such that changes are applied to the augmented image
-# 
-# # Settings for brightness and blur, use 'MULTIPLY' and/or 'BLUR' in
-# # AUGMENTATIONS
-# AUG_BRIGHTNESS_RANGE = 0.2  # this is interpreted as [-0.2, 0.2]
-# AUG_BLUR_RANGE = (0, 3)
-# 
+#
+# Settings for brightness and blur, used by 'MULTIPLY' and 'BLUR' in
+# AUGMENTATIONS above.
+AUG_BRIGHTNESS_RANGE = 0.2  # this is interpreted as [-0.2, 0.2]
+AUG_BLUR_RANGE = (0, 3)
+#
 # # "CROP" Transformation
 # # Apply mask to borders of the image
 # # defined by a rectangle.
@@ -505,10 +510,27 @@ DRIVE_TRAIN_TYPE = "PWM_STEERING_THROTTLE"
 # # xxxxxxxxxxxxxxxxxxxxx # bottom
 # # xxxxxxxxxxxxxxxxxxxxx #
 # # # # # # # # # # # # # #
-# ROI_CROP_TOP = 45               # the number of rows of pixels to ignore on the top of the image
-# ROI_CROP_BOTTOM = 0             # the number of rows of pixels to ignore on the bottom of the image
-# ROI_CROP_RIGHT = 0              # the number of rows of pixels to ignore on the right of the image
-# ROI_CROP_LEFT = 0               # the number of rows of pixels to ignore on the left of the image
+#
+# Camera sits ~45cm up (see project_hardware memory), tilted down at the taped
+# track rather than a true overhead shot. IMAGE_H=120: the top rows are room
+# background above the track -- walls, other tracks' tape, furniture, ceiling
+# -- which changes per room and is exactly what should NOT drive steering; the
+# held-out-track eval is the one place this bites hardest, since a model that
+# leaned on background pixels sees none of the SAME background there. The
+# bottom rows are the near-field track surface right in front of the cart,
+# which is where the steering-relevant tape edges actually are.
+#
+# ROI_CROP_TOP=45 removes the top 3/8 of a 120-row frame (NVIDIA's own
+# DAVE-2 crop is proportionally similar), leaving 75 rows of track and floor.
+# Re-check with test_camera.py once the camera is actually mounted -- if the
+# tilt is shallower the background band is taller and TOP should increase;
+# if it is steeper (closer to true bird's-eye) TOP can shrink, since a
+# near-vertical view sees mostly floor already and cropping too hard there
+# throws away real track curvature you need a few frames ahead of the cart.
+ROI_CROP_TOP = 45               # the number of rows of pixels to ignore on the top of the image
+ROI_CROP_BOTTOM = 0             # the number of rows of pixels to ignore on the bottom of the image
+ROI_CROP_RIGHT = 0              # the number of rows of pixels to ignore on the right of the image
+ROI_CROP_LEFT = 0               # the number of rows of pixels to ignore on the left of the image
 # 
 # # "TRAPEZE" tranformation
 # # Apply mask to borders of image
