@@ -59,6 +59,7 @@ class LocalPlanner:
                  smoothness_weight=0.35, heading_weight=0.5,
                  throttle_cruise=0.30, throttle_creep=0.16,
                  min_clear_m=0.45,
+                 crop_bottom=0.0,
                  assumed_speed_ms=0.5, predict_horizon_s=2.5,
                  track_window_s=0.8, min_track_speed_ms=0.25):
         """
@@ -128,7 +129,8 @@ class LocalPlanner:
         k = max(3, 2 * inflate_cells + 1)
         self._inflate_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
 
-        self.homography = self._load_homography(homography_path)
+        self.crop_bottom = float(crop_bottom or 0.0)
+        self.homography = self._load_homography(homography_path, self.crop_bottom)
         self.enabled = self.homography is not None
         if not self.enabled:
             logger.warning(
@@ -143,12 +145,33 @@ class LocalPlanner:
                         cart_width_m * 100, safety_margin_m * 100)
 
     @staticmethod
-    def _load_homography(path):
+    def _load_homography(path, crop_bottom=0.0):
+        """
+        Read the calibration, and refuse it if it was measured with a
+        different bottom crop than the pilot is applying.
+
+        A crop shifts which pixel means which patch of ground. A homography
+        measured on uncropped frames and used on cropped ones is wrong by
+        exactly that strip — and it fails SILENTLY, producing a plausible grid
+        with every distance skewed. Disabling the planner is the safe outcome:
+        without a homography the cart falls back to seg_pilot's steering,
+        which needs no metres at all.
+        """
         try:
             data = json.loads(Path(path).read_text())
-            return np.array(data["homography"], dtype=np.float32)
+            H = np.array(data["homography"], dtype=np.float32)
         except (OSError, ValueError, KeyError):
             return None
+        cal_crop = float(data.get("crop_bottom") or 0.0)
+        if abs(cal_crop - float(crop_bottom or 0.0)) > 1e-6:
+            logger.error(
+                "homography was calibrated with crop_bottom=%.3f but the "
+                "pilot is running crop_bottom=%.3f — every distance would be "
+                "wrong. Planner DISABLED; re-run calibrate_ground_plane.py "
+                "with --crop-bottom %.3f",
+                cal_crop, crop_bottom, crop_bottom)
+            return None
+        return H
 
     # ---------- occupancy grid ----------
 

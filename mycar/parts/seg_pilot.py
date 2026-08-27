@@ -31,7 +31,8 @@ class SegEngine:
                  bands=5, roi_top=0.4,
                  corridor_frac_bottom=0.28,
                  throttle_cruise=0.30, throttle_creep=0.16,
-                 mask_close_px=9, junction_bias=0.7, max_steer_rate=1.2):
+                 mask_close_px=9, junction_bias=0.7, max_steer_rate=1.2,
+                 crop_bottom=0.0):
         """
         :param onnx_path: segformer_sidewalk_int8.onnx
         :param labels_path: segformer_labels.json (from export_models.py)
@@ -57,7 +58,34 @@ class SegEngine:
                steering units per SECOND. Per second and not per frame because
                inference rate varies with load, and a per-frame limit would
                silently tighten whenever the Pi got busy. 0 disables.
+        :param crop_bottom: fraction of image HEIGHT discarded from the bottom
+               before inference. Set this if any of the cart's own bodywork,
+               mast or wiring appears in frame.
+
+               This is not cosmetic and it is not about wasted pixels. The
+               model labels your own body `vehicle-car`, and that label BLEEDS
+               UPWARD over the road in front of it, because the logits come out
+               at 1/4 resolution with a wide receptive field. Measured on a
+               dashcam frame whose bonnet filled the bottom 16%: the tarmac
+               ahead came back `vehicle-car` at 72%, drivable collapsed to 8%,
+               and the planner steered -0.65 off the road. Cropping that strip
+               and changing nothing else: 52% drivable, steer -0.05.
+
+               MUST MATCH YOUR CALIBRATION. Cropping redefines which pixel is
+               which, so the homography has to be measured on cropped frames.
+               calibrate_ground_plane.py records the crop it was run with, and
+               LocalPlanner refuses to run on a mismatch rather than warping
+               against the wrong geometry. Fix the mount first if you can; use
+               this when you cannot.
         """
+        # Cheap argument checks BEFORE the expensive ones, so a typo in a
+        # config value fails immediately instead of after loading 15 MB of
+        # ONNX and reporting something unrelated.
+        if not 0.0 <= crop_bottom < 0.9:
+            raise ValueError(
+                "crop_bottom must be in [0, 0.9); got %r. It is a FRACTION of "
+                "image height, not pixels." % (crop_bottom,))
+
         import onnxruntime as ort  # deferred: not needed for unit tests of steering
 
         meta = json.loads(Path(labels_path).read_text())
@@ -86,6 +114,11 @@ class SegEngine:
         self.throttle_cruise, self.throttle_creep = throttle_cruise, throttle_creep
         self.mask_close_px = mask_close_px
         self.junction_bias = junction_bias
+        self.crop_bottom = float(crop_bottom)
+        if self.crop_bottom:
+            logger.info("cropping the bottom %.0f%% of every frame before "
+                        "inference — the homography must have been calibrated "
+                        "with the same crop", 100 * self.crop_bottom)
         self.max_steer_rate = max_steer_rate
         self._prev_angle = 0.0
         self._close_kernel = (
@@ -113,10 +146,24 @@ class SegEngine:
             return mask
         return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self._close_kernel)
 
+    def crop(self, frame_bgr):
+        """
+        Discard the bottom strip, where the cart's own body would be.
+
+        Done BEFORE inference, not after: the damage is that the model sees
+        your bodywork, calls it `vehicle-car`, and lets that label spread over
+        the road beside it. Masking the strip out of the finished mask would
+        leave the contaminated road pixels exactly as they are.
+        """
+        if not self.crop_bottom:
+            return frame_bgr
+        keep = int(round(frame_bgr.shape[0] * (1.0 - self.crop_bottom)))
+        return frame_bgr[:max(1, keep)]
+
     def infer_mask(self, frame_bgr):
         """frame (any size, BGR) -> binary drivable mask at input_size x input_size."""
         s = self.input_size
-        img = cv2.resize(frame_bgr, (s, s), interpolation=cv2.INTER_LINEAR)
+        img = cv2.resize(self.crop(frame_bgr), (s, s), interpolation=cv2.INTER_LINEAR)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         img = (img - _MEAN) / _STD
         tensor = img.transpose(2, 0, 1)[None]
@@ -406,6 +453,12 @@ class SegPilot:
                 mask = self.engine.infer_mask(cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
                 self.angle, self.throttle, self._corridor_clear, _ = \
                     self.engine.steer_from_mask(mask, self.nav_command)
+                # Publish it. Without this seg/mask stays None forever, and
+                # LocalPlanner — which takes the mask as its ONLY perception
+                # input — silently falls through to passing seg_pilot's
+                # steering straight back out. Obstacle avoidance would look
+                # enabled in the config and never once run.
+                self.mask = mask
                 self._result_time = time.monotonic()
             except Exception:
                 logger.exception("segmentation failed; treating as blocked")
