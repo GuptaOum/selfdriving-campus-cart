@@ -1007,7 +1007,7 @@ PLANNER_SAFETY_MARGIN_M = 0.12  # clearance beyond the cart's own width. This
                                 # is what stops it shaving past someone's toes.
 PLANNER_HORIZON_M = 3.0         # plan this far ahead; beyond ~3 m the mask has
                                 # too few pixels per metre to trust
-PLANNER_LATERAL_M = 1.6         # half-width of the planning window, metres.
+PLANNER_LATERAL_M = 2.8         # half-width of the planning window, metres.
                                 # MUST cover your path or the cart cannot
                                 # consider the outer edges at all:
                                 #   2 m path  -> 1.2
@@ -1015,6 +1015,15 @@ PLANNER_LATERAL_M = 1.6         # half-width of the planning window, metres.
                                 # Costs memory as the square, but the grid is
                                 # tiny either way (a 5 m window at 5 cm is
                                 # 60 x 112 cells).
+                                # Set to 2.8 for the 5-6 m campus paths this
+                                # cart runs on. At 1.6 the window was 3.2 m
+                                # wide and the outer metre of the path did not
+                                # exist as far as the planner was concerned —
+                                # it could not steer into a gap it could not
+                                # represent. Use 3.0 if your paths measure 6 m.
+                                # This is a MEASURED value: it comes from the
+                                # width of the path, not from tuning against
+                                # footage.
 
 # -- moving-obstacle prediction ------------------------------------------------
 # YOLO tracking (ByteTrack) gives each object a persistent id; the planner turns
