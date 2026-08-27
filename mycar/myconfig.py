@@ -1028,11 +1028,18 @@ PLANNER_ASSUMED_SPEED_MS = 0.5    # your real cruising speed. Too high and the
 PLANNER_PREDICT_HORIZON_S = 2.5   # stop extrapolating past this. A pedestrian's
                                   # velocity is a fair guess for a couple of
                                   # seconds and fiction after that.
-PLANNER_N_CANDIDATES = 41         # steering arcs rolled out per frame, and the
+PLANNER_N_CANDIDATES = 61         # steering arcs rolled out per frame, and the
                                   # knob that actually smooths steering. The
                                   # chosen angle can only land on one of these,
                                   # so coarse sampling snaps between notches as
-                                  # the mask flickers. Over 40 frames of campus
-                                  # footage, 21 -> 41 cut the worst one-frame
-                                  # jump from 0.500 to 0.050. Free: the planner
-                                  # costs a few ms beside ~660 ms of inference.
+                                  # the mask flickers. Mean frame-to-frame
+                                  # change over 60 frames of campus footage:
+                                  # 21 -> 0.0085, 41 -> 0.0025, 61 -> 0.0006,
+                                  # then flat (81, 121, 181 all ~0.0005).
+                                  # 61 is the knee. Costs 8.5 ms beside ~660 ms
+                                  # of inference, so the loop does not notice.
+                                  # Raising it further only shrinks the max,
+                                  # which IS the step size - that is measuring
+                                  # the ruler. It also buys nothing below about
+                                  # 0.01, which is what the servo can resolve
+                                  # through the PCA9685.

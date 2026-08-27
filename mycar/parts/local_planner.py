@@ -55,7 +55,7 @@ class LocalPlanner:
     def __init__(self, homography_path,
                  cart_width_m=0.28, wheelbase_m=0.32, safety_margin_m=0.12,
                  horizon_m=3.0, grid_res_m=0.05, lateral_m=1.6,
-                 n_candidates=41, max_steer_rad=0.52,
+                 n_candidates=61, max_steer_rad=0.52,
                  smoothness_weight=0.35, heading_weight=0.5,
                  throttle_cruise=0.30, throttle_creep=0.16,
                  min_clear_m=0.45,
@@ -79,11 +79,20 @@ class LocalPlanner:
                steering SMOOTHNESS knob, and it works where smoothness_weight
                does not. The winner can only land on one of these values, so
                coarse sampling makes the chosen angle snap between notches as
-               the mask flickers. Measured over 40 frames of campus footage,
-               going from 21 to 41 cut the worst single-frame jump from 0.500
-               to 0.050 — a whole notch of quantisation, not real steering.
-               Costs nothing that matters: the planner runs a few ms against
-               ~660 ms of segmentation inference. 61 buys little more.
+               the mask flickers. Measured over 60 frames of campus footage,
+               mean frame-to-frame change: 21 -> 0.0085, 41 -> 0.0025,
+               61 -> 0.0006, and then FLAT (81 -> 0.0004, 121 and 181 ->
+               0.0006). 61 is the knee; past it only `max` keeps falling, and
+               it falls by definition because max IS the step size. Chasing it
+               is measuring the ruler, not the road.
+
+               Costs 8.5 ms against ~660 ms of segmentation inference, so the
+               tick rate does not notice. Note what this does and does not
+               buy: finer sampling makes the steering SMOOTHER, not better
+               informed. Accuracy is bounded by the mask and the homography.
+               Below about 0.01 the sampling is also finer than the servo can
+               resolve through the PCA9685, so it would be arithmetic with no
+               mechanical meaning.
         :param assumed_speed_ms: how fast we expect to travel while executing
                the plan. Converts distance along an arc into TIME, which is
                what lets a moving obstacle be checked at the moment we would

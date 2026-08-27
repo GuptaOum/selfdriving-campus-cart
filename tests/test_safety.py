@@ -632,7 +632,7 @@ def make_planner(**kw):
     p.safety_margin_m = kw.get("safety_margin_m", 0.12)
     p.horizon_m, p.res, p.lateral_m = 3.0, 0.05, 1.6
     p.rows, p.cols = int(3.0 / 0.05), int(2 * 1.6 / 0.05)
-    p.n_candidates, p.max_steer_rad = 41, 0.52
+    p.n_candidates, p.max_steer_rad = 61, 0.52
     p.smoothness_weight, p.heading_weight = 0.35, 0.5
     p.throttle_cruise, p.throttle_creep = 0.30, 0.16
     p.min_clear_m = 0.45

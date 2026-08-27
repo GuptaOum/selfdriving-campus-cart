@@ -1133,7 +1133,7 @@ def add_campus_autonomy(V, cfg):
                 throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16),
                 assumed_speed_ms=getattr(cfg, 'PLANNER_ASSUMED_SPEED_MS', 0.5),
                 predict_horizon_s=getattr(cfg, 'PLANNER_PREDICT_HORIZON_S', 2.5),
-                n_candidates=getattr(cfg, 'PLANNER_N_CANDIDATES', 41),
+                n_candidates=getattr(cfg, 'PLANNER_N_CANDIDATES', 61),
                 crop_bottom=getattr(cfg, 'SEG_CROP_BOTTOM', 0.0)),
               inputs=['seg/mask', 'seg/angle', 'seg/corridor_clear',
                       'yolo/tracks', 'nav/command', 'sonar/scan'],
