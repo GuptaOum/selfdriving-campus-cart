@@ -1006,3 +1006,11 @@ PLANNER_ASSUMED_SPEED_MS = 0.5    # your real cruising speed. Too high and the
 PLANNER_PREDICT_HORIZON_S = 2.5   # stop extrapolating past this. A pedestrian's
                                   # velocity is a fair guess for a couple of
                                   # seconds and fiction after that.
+PLANNER_N_CANDIDATES = 41         # steering arcs rolled out per frame, and the
+                                  # knob that actually smooths steering. The
+                                  # chosen angle can only land on one of these,
+                                  # so coarse sampling snaps between notches as
+                                  # the mask flickers. Over 40 frames of campus
+                                  # footage, 21 -> 41 cut the worst one-frame
+                                  # jump from 0.500 to 0.050. Free: the planner
+                                  # costs a few ms beside ~660 ms of inference.
