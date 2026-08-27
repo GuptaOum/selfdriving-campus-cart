@@ -886,6 +886,104 @@ check("vanished tracks are dropped", list(tp4._tracks) == [1], f"{list(tp4._trac
 
 
 # =====================================================================
+section("bottom crop + calibration agreement")
+# =====================================================================
+# The cart's own bodywork in frame is a PERCEPTION failure, not wasted pixels:
+# the model calls it `vehicle-car` and that label bleeds upward over the road.
+# Measured on a dashcam frame with the bonnet in the bottom 16% — the tarmac
+# ahead read `vehicle-car` 72%, drivable 8%, and the planner steered -0.65 off
+# the road; cropped, 52% and -0.05. These tests pin the mechanics of the knob.
+
+ce = make_engine()
+ce.crop_bottom = 0.0
+full = np.zeros((360, 640, 3), np.uint8)
+check("crop_bottom 0 is a no-op", ce.crop(full).shape == full.shape)
+
+ce.crop_bottom = 0.16
+check("crop_bottom removes the bottom strip",
+      ce.crop(full).shape[0] == 302, f"{ce.crop(full).shape[0]} rows")
+check("crop_bottom keeps full width", ce.crop(full).shape[1] == 640)
+check("crop_bottom keeps the TOP rows, not the bottom ones",
+      np.array_equal(ce.crop(np.arange(360, dtype=np.uint8)
+                             .reshape(360, 1, 1) * np.ones((1, 4, 3), np.uint8))[0],
+                     np.zeros((4, 3), np.uint8)))
+
+ce.crop_bottom = 0.5
+check("a large crop still leaves a frame", ce.crop(full).shape[0] == 180)
+
+rejected = 0
+for v in (-0.1, 0.9, 1.0, 2.0):
+    try:
+        SegEngine.__init__(SegEngine.__new__(SegEngine), "x", "y", crop_bottom=v)
+    except ValueError:
+        rejected += 1
+    except Exception:
+        pass          # any earlier failure (model load) means validation order
+check("crop_bottom outside [0, 0.9) is rejected", rejected == 4, f"{rejected}/4")
+
+# A crop changes which pixel means which patch of ground, so a homography
+# measured without it is wrong with it — and wrong SILENTLY, producing a
+# plausible grid with every distance skewed. Refusing is the safe outcome:
+# no homography means the cart falls back to seg_pilot, which needs no metres.
+import json as _json
+import tempfile as _tempfile
+
+
+def _cal(crop):
+    p = Path(_tempfile.gettempdir()) / f"_test_homography_{crop}.json"
+    body = {"homography": np.eye(3).tolist()}
+    if crop is not None:
+        body["crop_bottom"] = crop
+    p.write_text(_json.dumps(body))
+    return str(p)
+
+
+check("matching crop loads the homography",
+      LocalPlanner._load_homography(_cal(0.16), 0.16) is not None)
+check("mismatched crop REFUSES the homography",
+      LocalPlanner._load_homography(_cal(0.0), 0.16) is None)
+check("mismatch the other way is refused too",
+      LocalPlanner._load_homography(_cal(0.16), 0.0) is None)
+check("a calibration with no crop field means no crop",
+      LocalPlanner._load_homography(_cal(None), 0.0) is not None)
+check("old calibration + new crop is refused, not assumed",
+      LocalPlanner._load_homography(_cal(None), 0.16) is None)
+
+check("a crop mismatch DISABLES the planner rather than skewing it",
+      not LocalPlanner(_cal(0.0), crop_bottom=0.16).enabled)
+check("agreement leaves the planner enabled",
+      LocalPlanner(_cal(0.16), crop_bottom=0.16).enabled)
+
+
+# =====================================================================
+section("SegPilot publishes the mask the planner needs")
+# =====================================================================
+# LocalPlanner takes seg/mask as its ONLY perception input. If SegPilot never
+# assigns it, the planner receives None every tick and silently passes
+# seg_pilot's steering straight back out — obstacle avoidance reads as enabled
+# in the config and never once runs. This is invisible on a bench, so pin it.
+
+mp = SegPilot.__new__(SegPilot)
+mp.max_result_age, mp.max_frame_age = 5.0, 5.0
+mp.angle, mp.throttle, mp._corridor_clear = 0.1, 0.2, True
+mp.fps = 2.0
+mp._last_image, mp._frame_time = None, 0.0
+mp._result_time, mp._last_stale_log = time.monotonic(), 0.0
+mp.image = mp.nav_command = None
+mp.mask = np.ones((16, 16), np.uint8)
+_, _, _, _, published = mp.run_threaded(np.zeros((120, 160, 3), np.uint8))
+check("a healthy tick publishes the mask", published is not None)
+
+mp._result_time = time.monotonic() - 99.0
+_, _, _, _, stale = mp.run_threaded(np.ones((120, 160, 3), np.uint8))
+check("a stale tick publishes None, not a stale mask", stale is None)
+
+_src = (Path(__file__).resolve().parent.parent / "mycar" / "parts"
+        / "seg_pilot.py").read_text(encoding="utf-8")
+check("update() actually assigns self.mask", "self.mask = mask" in _src)
+
+
+# =====================================================================
 print(f"\n{'=' * 60}")
 if FAILURES:
     print(f"FAILED ({len(FAILURES)}): {FAILURES}")
