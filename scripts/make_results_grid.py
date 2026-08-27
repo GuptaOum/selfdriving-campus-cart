@@ -23,16 +23,12 @@ from mycar.parts.local_planner import LocalPlanner                # noqa: E402
 from scripts.mask_and_plan_demo import (synth_homography,         # noqa: E402
                                         draw_arcs, PROFILES)
 
-PW, PH = 460, 259                 # one panel
-GUT, HDR, TITLE = 300, 46, 92     # left gutter, column header, title bar
-PAD = 10
+PW, PH = 480, 270                 # one panel
+GAP = 4                           # hairline between panels, nothing else
 
-BG = (22, 22, 24)
-FG = (238, 238, 238)
-DIM = (150, 150, 155)
+BG = (18, 18, 20)
+FG = (240, 240, 240)
 HI = (0, 210, 255)
-
-COLS = ["1. drivable overlay", "2. binary mask", "3. bird's-eye + arcs"]
 
 ROWS = [
     dict(key="curve_nocrop", title="Dashcam curve", sub="bonnet IN frame",
@@ -120,6 +116,15 @@ def build_row(spec, src_dir, model, labels):
     return panels, coverage, steer, clear, planner.n_candidates
 
 
+def stamp(panel, s, corner="tl", col=FG, weight=1, scale=0.46):
+    """Small caption burned into the panel itself — no chrome around the grid."""
+    (tw, th), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, scale, weight)
+    x = 10 if corner[1] == "l" else panel.shape[1] - tw - 10
+    y = 10 + th if corner[0] == "t" else panel.shape[0] - 10
+    cv2.rectangle(panel, (x - 6, y - th - 6), (x + tw + 6, y + 6), (0, 0, 0), -1)
+    text(panel, s, (x, y), scale, col, weight)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=None,
@@ -132,53 +137,28 @@ def main():
     args = ap.parse_args()
     src = args.src or "."
 
-    W = GUT + 3 * PW + 4 * PAD
-    H = TITLE + HDR + 4 * (PH + PAD) + PAD
+    W = 3 * PW + 2 * GAP
+    H = 4 * PH + 3 * GAP
     sheet = np.full((H, W, 3), BG, np.uint8)
 
-    rows = []
-    for spec in ROWS:
-        rows.append((spec,) + build_row(spec, src, args.seg_model,
-                                        args.seg_labels))
-
-    n_arcs = rows[0][5]
-    text(sheet, "Drivable segmentation to steering, one frame at a time",
-         (PAD + 6, 34), 0.72, FG, 2)
-    text(sheet, "SegFormer-B0 sidewalk, INT8 ONNX, no fine-tuning  |  "
-                "LocalPlanner rolls out %d arcs and drives the one that "
-                "reaches furthest" % n_arcs,
-         (PAD + 6, 62), 0.46, DIM, 1)
-    text(sheet, "Bird's-eye distances use a SYNTHESISED homography and are "
-                "notional until ground-plane calibration; the masks are real "
-                "model output.",
-         (PAD + 6, 82), 0.44, (120, 150, 200), 1)
-
-    for c, name in enumerate(COLS):
-        x = GUT + PAD + c * (PW + PAD)
-        text(sheet, name, (x + 4, TITLE + 30), 0.52, FG, 1)
-
-    for r, (spec, panels, cov, steer, clear, _) in enumerate(rows):
-        y = TITLE + HDR + r * (PH + PAD)
+    stats = []
+    for r, spec in enumerate(ROWS):
+        panels, cov, steer, clear, _ = build_row(spec, src, args.seg_model,
+                                                 args.seg_labels)
+        stamp(panels[0], spec["sub"], "tl", HI if spec["crop"] else FG,
+              2 if spec["crop"] else 1)
+        stamp(panels[1], "drivable %.1f%%" % cov, "tl")
+        stamp(panels[2], "steer %+.3f" % steer, "tl", HI, 2)
+        stamp(panels[2], "%.2f m" % clear, "bl")
         for c, p in enumerate(panels):
-            x = GUT + PAD + c * (PW + PAD)
+            y, x = r * (PH + GAP), c * (PW + GAP)
             sheet[y:y + PH, x:x + PW] = p
-            cv2.rectangle(sheet, (x - 1, y - 1), (x + PW, y + PH),
-                          (60, 60, 64), 1)
-
-        gy = y + 34
-        text(sheet, spec["title"], (PAD + 6, gy), 0.62, FG, 2)
-        text(sheet, spec["sub"], (PAD + 6, gy + 26), 0.5,
-             HI if spec["crop"] else DIM, 1)
-        text(sheet, "drivable   %5.1f %%" % cov, (PAD + 6, gy + 60), 0.5, FG, 1)
-        text(sheet, "steer      %+.3f" % steer, (PAD + 6, gy + 84), 0.5,
-             HI, 2 if abs(steer) > 0.2 else 1)
-        text(sheet, "clear      %.2f m" % clear, (PAD + 6, gy + 108), 0.5, FG, 1)
-        text(sheet, spec["note"], (PAD + 6, gy + 140), 0.42, DIM, 1)
+        stats.append((spec, cov, steer, clear))
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(args.out, sheet)
     print("wrote %s  (%dx%d)" % (args.out, W, H))
-    for spec, _, cov, steer, clear, _ in rows:
+    for spec, cov, steer, clear in stats:
         print("  %-16s %-22s drivable %5.1f%%  steer %+.3f  clear %.2f m"
               % (spec["title"], spec["sub"], cov, steer, clear))
 
