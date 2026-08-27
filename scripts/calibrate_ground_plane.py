@@ -126,7 +126,16 @@ def main():
                          "and its error is the only honest accuracy number you "
                          "can get: four points always fit exactly, a fifth "
                          "does not have to.")
+    ap.add_argument("--crop-bottom", type=float, default=0.0,
+                    help="fraction of image height cropped off the bottom "
+                         "before inference, if any of the cart's own bodywork "
+                         "is in frame. MUST equal SEG_CROP_BOTTOM: the crop "
+                         "changes which pixel is which, so a homography "
+                         "measured without it is wrong with it. Recorded in "
+                         "the output so LocalPlanner can refuse a mismatch.")
     args = ap.parse_args()
+    if not 0.0 <= args.crop_bottom < 0.9:
+        raise SystemExit("--crop-bottom is a fraction of height, in [0, 0.9)")
 
     verify_pt = None
     if args.verify:
@@ -153,6 +162,20 @@ def main():
         if not ok:
             raise SystemExit("cannot read from camera")
 
+    # Crop before anything is clicked. The homography maps IMAGE pixels to
+    # ground metres, so it has to be measured in the same pixel frame the cart
+    # will actually feed the model — clicking on an uncropped view would
+    # produce a homography that is wrong by exactly the cropped strip.
+    def apply_crop(f):
+        if not args.crop_bottom:
+            return f
+        return f[:max(1, int(round(f.shape[0] * (1.0 - args.crop_bottom))))]
+
+    frame = apply_crop(frame)
+    if args.crop_bottom:
+        print(f"cropped the bottom {100 * args.crop_bottom:.0f}% — click on "
+              f"this cropped view, and set SEG_CROP_BOTTOM to the same value")
+
     cv2.namedWindow("calibrate")
     cv2.setMouseCallback("calibrate", on_mouse)
     print(__doc__)
@@ -166,7 +189,7 @@ def main():
         if cap is not None and not clicks:
             ok, live = cap.read()
             if ok:
-                frame = live
+                frame = apply_crop(live)
 
         view = frame.copy()
         for i, (x, y) in enumerate(clicks):
@@ -252,6 +275,7 @@ def main():
                 "verify_ground_point": list(verify_pt) if verify_pt else None,
                 "verify_error_m": verify_err,
                 "image_size": [frame.shape[1], frame.shape[0]],
+                "crop_bottom": args.crop_bottom,
             }, indent=2))
             print(f"wrote {OUT} — copy it to the Pi and set PLANNER_HOMOGRAPHY")
             break

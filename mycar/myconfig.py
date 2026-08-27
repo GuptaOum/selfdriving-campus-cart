@@ -852,6 +852,28 @@ SEG_MAX_STEER_RATE = 1.2        # max change in steering per SECOND. Stops a
                                 # does not silently tighten the limit. A real
                                 # turn is unaffected — it keeps pushing the same
                                 # way every frame. 0 disables.
+SEG_CROP_BOTTOM = 0.0           # fraction of image HEIGHT thrown away from the
+                                # bottom before inference. Leave 0 if no part of
+                                # the cart is in frame — fixing the mount beats
+                                # cropping, because a crop also throws away the
+                                # nearest ground you can see.
+                                #
+                                # Set it if bodywork, mast or wiring IS visible.
+                                # This is a perception failure, not lost pixels:
+                                # the model calls your own body `vehicle-car`
+                                # and that label bleeds UPWARD over the road,
+                                # because the logits are 1/4 resolution with a
+                                # wide receptive field. Measured on a frame
+                                # whose bonnet filled the bottom 16% — tarmac
+                                # ahead came back `vehicle-car` 72%, drivable
+                                # 8%, planner steered -0.65 off the road.
+                                # Cropped, nothing else changed: 52%, -0.05.
+                                #
+                                # MUST MATCH THE CALIBRATION. Re-run
+                                # calibrate_ground_plane.py --crop-bottom with
+                                # the same number; LocalPlanner disables itself
+                                # on a mismatch rather than warping against the
+                                # wrong geometry.
 SEG_THROTTLE_CRUISE = 0.30      # throttle when corridor clear to the horizon
 SEG_THROTTLE_CREEP = 0.16       # throttle when corridor short / crossing breaker
 

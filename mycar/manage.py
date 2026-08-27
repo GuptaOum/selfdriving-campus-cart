@@ -1108,6 +1108,7 @@ def add_campus_autonomy(V, cfg):
                      mask_close_px=getattr(cfg, 'SEG_MASK_CLOSE_PX', 9),
                      junction_bias=getattr(cfg, 'SEG_JUNCTION_BIAS', 0.7),
                      max_steer_rate=getattr(cfg, 'SEG_MAX_STEER_RATE', 1.2),
+                     crop_bottom=getattr(cfg, 'SEG_CROP_BOTTOM', 0.0),
                      throttle_cruise=getattr(cfg, 'SEG_THROTTLE_CRUISE', 0.30),
                      throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16))
     V.add(pilot, inputs=['cam/image_array', 'nav/command'],
@@ -1132,7 +1133,8 @@ def add_campus_autonomy(V, cfg):
                 throttle_creep=getattr(cfg, 'SEG_THROTTLE_CREEP', 0.16),
                 assumed_speed_ms=getattr(cfg, 'PLANNER_ASSUMED_SPEED_MS', 0.5),
                 predict_horizon_s=getattr(cfg, 'PLANNER_PREDICT_HORIZON_S', 2.5),
-                n_candidates=getattr(cfg, 'PLANNER_N_CANDIDATES', 41)),
+                n_candidates=getattr(cfg, 'PLANNER_N_CANDIDATES', 41),
+                crop_bottom=getattr(cfg, 'SEG_CROP_BOTTOM', 0.0)),
               inputs=['seg/mask', 'seg/angle', 'seg/corridor_clear',
                       'yolo/tracks', 'nav/command', 'sonar/scan'],
               outputs=['plan/angle', 'plan/throttle', 'plan/clear',

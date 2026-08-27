@@ -96,6 +96,10 @@ def main():
     ap.add_argument("--fov", type=float, default=78.0)
     ap.add_argument("--vp", type=float, default=0.5,
                     help="horizon row as a fraction of image height")
+    ap.add_argument("--crop-bottom", type=float, default=0.0,
+                    help="fraction of image height dropped from the bottom "
+                         "before inference — use it when the cart's own "
+                         "bodywork is in frame")
     ap.add_argument("--lateral", type=float, default=2.8)
     ap.add_argument("--horizon", type=float, default=4.0)
     ap.add_argument("--command", default=None, choices=["LEFT", "RIGHT", "STRAIGHT"])
@@ -120,14 +124,19 @@ def main():
     H_img, W_img = frame.shape[:2]
 
     # ---- perception -------------------------------------------------
-    engine = SegEngine(args.seg_model, args.seg_labels)
+    engine = SegEngine(args.seg_model, args.seg_labels,
+                       crop_bottom=args.crop_bottom)
     meta = json.loads(Path(args.seg_labels).read_text())
     id2label = {int(k): v for k, v in meta["id2label"].items()}
     wanted = PROFILES[args.profile]
     engine.drivable_ids = np.array(
         [i for i, n in id2label.items() if n in wanted], dtype=np.int64)
 
+    # infer_mask crops internally, so hand it the FULL frame and keep the
+    # cropped one only for display and for sizing the mask back up.
     mask_sq = engine.infer_mask(frame)                       # 256x256
+    frame = engine.crop(frame)          # the cropped view IS the canonical one
+    H_img, W_img = frame.shape[:2]
     mask = cv2.resize(mask_sq, (W_img, H_img), interpolation=cv2.INTER_NEAREST)
     coverage = 100.0 * float(mask.mean())
 

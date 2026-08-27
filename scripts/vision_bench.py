@@ -174,6 +174,11 @@ def main():
     ap.add_argument("--cart-width", type=float, default=0.28)
     ap.add_argument("--margin", type=float, default=0.12)
     ap.add_argument("--horizon", type=float, default=4.0)
+    ap.add_argument("--crop-bottom", type=float, default=0.0,
+                    help="fraction of image height cropped off the bottom "
+                         "before inference, for bodywork in frame. Must "
+                         "match the --crop-bottom the homography was "
+                         "calibrated with.")
     ap.add_argument("--lateral", type=float, default=2.8,
                     help="half-width of the planning window; must cover your path")
     ap.add_argument("--speed", type=float, default=0.5,
@@ -182,7 +187,8 @@ def main():
                          "would actually meet them.")
     args = ap.parse_args()
 
-    engine = SegEngine(args.seg_model, args.seg_labels)
+    engine = SegEngine(args.seg_model, args.seg_labels,
+                       crop_bottom=args.crop_bottom)
     breaker_part = BreakerDetect()      # the part, so distance gating applies
 
     yolo = None
@@ -196,7 +202,7 @@ def main():
             homography_path=args.homography,
             cart_width_m=args.cart_width, safety_margin_m=args.margin,
             horizon_m=args.horizon, lateral_m=args.lateral,
-            assumed_speed_ms=args.speed)
+            assumed_speed_ms=args.speed, crop_bottom=args.crop_bottom)
         if not planner.enabled:
             sys.exit(f"could not load a homography from {args.homography}")
 
