@@ -111,19 +111,29 @@ def draw_bev(planner, grid, scores, best, moving, height):
 
 
 def annotate(frame, mask, debug, angle, throttle, clear, breaker, seg_fps,
-             tracks, source, clear_m):
+             tracks, source, clear_m, crop_bottom=0.0):
     h, w = frame.shape[:2]
+    # The mask only covers what the model was shown: everything ABOVE the
+    # --crop-bottom line. Stretching it over the full height draws the
+    # corridor about 1.5x too low at crop 0.34 and puts the band centroids
+    # on the bodywork, so the overlay disagrees with the steering it claims
+    # to explain.
+    keep = max(1, min(h, int(round(h * (1.0 - crop_bottom))))) if crop_bottom else h
     overlay = frame.copy()
-    mask_up = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
-    overlay[mask_up > 0] = (90, 220, 120)
+    mask_up = cv2.resize(mask, (w, keep), interpolation=cv2.INTER_NEAREST)
+    overlay[:keep][mask_up > 0] = (90, 220, 120)
     out = cv2.addWeighted(frame, 0.66, overlay, 0.34, 0)
 
-    roi = int(h * 0.4)
-    band_h = (h - roi) // 5
+    roi = int(keep * 0.4)
+    band_h = (keep - roi) // 5
     cv2.line(out, (0, roi), (w, roi), (255, 210, 60), 1)
+    if keep < h:
+        cv2.line(out, (0, keep), (w, keep), (120, 120, 255), 2)
+        cv2.putText(out, "cropped off - not seen by the model", (10, keep + 24),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (120, 120, 255), 1)
     pts = []
     for b, cx_frac, _ in debug.get("centroids", []):
-        y = h - b * band_h - band_h // 2
+        y = keep - b * band_h - band_h // 2
         x = int(cx_frac * w)
         pts.append((x, y))
         cv2.circle(out, (x, y), 6, (40, 40, 245), -1)
@@ -137,7 +147,7 @@ def annotate(frame, mask, debug, angle, throttle, clear, breaker, seg_fps,
         cv2.putText(out, f"#{tid}", (int(x1), int(y1) - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (235, 120, 60), 2)
 
-    cv2.line(out, (w // 2, roi), (w // 2, h), (200, 200, 200), 1)
+    cv2.line(out, (w // 2, roi), (w // 2, keep), (200, 200, 200), 1)
     cv2.arrowedLine(out, (w // 2, h - 26), (int(w // 2 + angle * w * 0.27), h - 84),
                     (0, 235, 255), 5, tipLength=0.3)
 
@@ -303,7 +313,8 @@ def main():
             stops += 1
 
         out = annotate(frame, mask, debug, angle, throttle, clear, breaker,
-                       1.0 / max(seg_times[-1], 1e-3), tracks, source, clear_m)
+                       1.0 / max(seg_times[-1], 1e-3), tracks, source, clear_m,
+                       crop_bottom=args.crop_bottom)
         if bev is not None:
             out = np.hstack([out, bev])
 

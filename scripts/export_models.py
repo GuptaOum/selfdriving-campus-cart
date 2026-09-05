@@ -59,6 +59,15 @@ DRIVABLE_PROFILES = {
         "flat-road",
         "flat-parkingdriveway",
     ],
+    # Carriageway only, no pedestrian ground at all. This is a CONTROL, not a
+    # recommendation: benchmarked on dashcam footage it judged the corridor
+    # blocked on 68% of frames, because crosswalks and driveway mouths are
+    # separate classes and punch holes straight across the lane. It is kept
+    # because it is the arm that shows the class list, not the mask quality,
+    # is what decides where the corridor ends.
+    "carriageway": [
+        "flat-road",
+    ],
 }
 DEFAULT_PROFILE = "footpath"
 

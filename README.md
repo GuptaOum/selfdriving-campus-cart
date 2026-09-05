@@ -9,7 +9,7 @@ An autonomous RC car built on the [DonkeyCar](https://www.donkeycar.com/) platfo
 | Phase | Goal | Approach | Status |
 |-------|------|----------|--------|
 | **1. Track autonomy** | Car drives itself around indoor tracks with obstacles; train and compare models across 5–6 different track layouts | Behavioral cloning (DonkeyCar) | 🔄 **In progress — current focus** |
-| **2. Campus delivery** | Point-A-to-point-B outdoor navigation on campus paths, obstacle avoidance, live tracking app | Pretrained segmentation + geometric steering | 🧊 Code written, dormant behind a config flag |
+| **2. Campus delivery** | Point-A-to-point-B outdoor navigation on campus paths, obstacle avoidance, live tracking app | Pretrained segmentation + geometric steering | 🧊 Code written and benchmarked on real footage, dormant behind a config flag |
 | 3. AI commands | Natural-language commands ("go to the parking area") via object detection + LLM command parsing | YOLO + LLM | 📋 Deferred, not cancelled |
 
 Phase 1 is the priority and is unaffected by Phase 2 — see below.
@@ -51,6 +51,82 @@ well a cloned model generalizes rather than memorizes:
   background and is the single biggest anti-overfitting lever.
 - Set `CREATE_TF_LITE = True`. Training happens on x86, inference on ARM, and
   mismatched TensorFlow versions are the most common "model won't load" failure.
+
+## Perception benchmarks
+
+Measured on 30 s (900 frames) of public dashcam footage, 1080p30. Every run drives
+the real car code — steering always comes from `SegEngine.steer_from_mask` — so a
+change in the number is a change in the mask, not a change in the maths.
+
+### The camera must never see the vehicle body
+
+On this footage the dash and hood fill the bottom 34% of the frame. Left in, the
+model labels **the dashboard itself as drivable road**:
+
+| | drivable | steer on a straight road |
+|---|---|---|
+| body in frame | 45.6% | **-0.218** |
+| `--crop-bottom 0.34` | 23.2% | **-0.022** |
+
+Cropping happens *before* inference. Masking it out afterwards does not work — the
+contaminated road pixels beside the body are already wrong.
+
+### The drivable class list decides the corridor, not mask quality
+
+Same model, same crop, same 674 frames. Only `drivable_ids` changed:
+
+| profile | classes | steer mean | frames that would stop |
+|---|---|---|---|
+| road | sidewalk, crosswalk, cyclinglane, road, parkingdriveway | -0.079 | 2/674 |
+| footpath *(default)* | sidewalk, crosswalk, cyclinglane | +0.039 | 154/674 |
+| carriageway | road only | -0.115 | **460/674 (68%)** |
+
+Carriageway-only collapses because crosswalks and driveway mouths punch holes
+straight across the lane. Too narrow a list stops the cart; too wide merges the
+path with traffic.
+
+### Input resolution is not the bottleneck
+
+Same checkpoint, same fp32 weights, only the square input size changed:
+
+| input | steer mean | mean \|Δsteer\| | drivable | frames that would stop |
+|---|---|---|---|---|
+| 256 | +0.010 | 0.0090 | 0.226 | 1/900 |
+| 512 | -0.222 | 0.0346 | 0.203 | 38/900 |
+| 768 | -0.141 | 0.0367 | 0.179 | **239/900** |
+
+Bigger input is monotonically **worse** — stops explode and steering gets roughly
+four times jumpier. Raising `SEG_INPUT_SIZE` is not a quality fix. The real
+handicaps are capacity (~3.8M params) and domain: the checkpoint is fine-tuned on
+footage shot *walking on footpaths*, not from a windscreen.
+
+### A bigger model fixes perception, not steering
+
+Mask2Former Swin-L (Cityscapes, ~215M params) segments the kerb line cleanly and
+never stops on this clip — and its panoptic variant returns per-object instances,
+doing the detection job in the same forward pass. It cannot run on a Pi 4B.
+
+The useful part is what *didn't* change. Mean steering held between **-0.195 and
+-0.250** across three perception setups — semantic, panoptic, and panoptic with
+Kalman tracking. Cityscapes `road` covers the whole carriageway plus the parking
+apron, so the corridor is far wider than the ego lane and the band centroid lands
+off-lane. Better perception did not move it. That is the corridor rule, not the mask.
+
+### What this changed in the repo
+
+- `scripts/export_models.py` — added a `carriageway` profile alongside `footpath`
+  and `road`, so every arm in the table above is reproducible with
+  `python scripts/export_models.py --profile <name>`. Only `drivable_ids` in the
+  labels file changes; the ONNX weights are identical across profiles, so a
+  profile can also be switched by editing that one field. (`exported_models/` is
+  gitignored — it holds the model binaries — so the labels files are generated,
+  not committed.)
+- `scripts/vision_bench.py` — the annotated overlay now honours `--crop-bottom`.
+  It previously stretched the mask over the full frame height, drawing the corridor
+  and the band centroids about 1.5x too low whenever a crop was in use.
+- Planned next: use a large segmentation model **offline as an auto-labeller** over
+  campus footage, and fine-tune the small on-car model on those pseudo-labels.
+  Domain is what is missing, and this buys it without hand-labelling.
 
 ## Hardware Architecture
 
@@ -161,3 +237,5 @@ Flip channel 5 on the transmitter to switch into autopilot.
 
 - [DonkeyCar](https://github.com/autorope/donkeycar) — the open-source DIY self-driving platform this project is built on
 - NVIDIA's [End-to-End Learning for Self-Driving Cars](https://arxiv.org/abs/1604.07316) paper, the basis of the behavioral-cloning approach
+- Udacity's [open-source self-driving car](https://github.com/udacity/self-driving-car) repository and [Challenge #2 writeup](https://medium.com/udacity/teaching-a-machine-to-steer-a-car-d73217f2492c) — the winning entries are a useful reference for steering regression, particularly the finding that framing it as classification first is easier than regressing angles directly
+- [SegFormer](https://arxiv.org/abs/2105.15203) and [Mask2Former](https://arxiv.org/abs/2112.01527), and the [sidewalk-semantic](https://huggingface.co/datasets/segments/sidewalk-semantic) and [Cityscapes](https://www.cityscapes-dataset.com/) label sets used by the pretrained models
