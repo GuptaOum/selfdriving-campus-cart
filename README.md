@@ -58,6 +58,14 @@ Measured on 30 s (900 frames) of public dashcam footage, 1080p30. Every run driv
 the real car code — steering always comes from `SegEngine.steer_from_mask` — so a
 change in the number is a change in the mask, not a change in the maths.
 
+![panoptic segmentation and tracking on dashcam footage](docs/results/panoptic_demo.gif)
+
+Mask2Former Swin-L panoptic with SORT tracking. Light blue is drivable road,
+pink is sidewalk, boxes are the near vehicles the tracker keeps. **This is not the
+on-car model** — it is ~215M parameters at roughly 7 FPS on a T4 GPU, and it will
+not run on a Pi 4B. It is here as the offline reference the small model is measured
+against, and as the auto-labelling candidate described at the end of this section.
+
 ### The camera must never see the vehicle body
 
 On this footage the dash and hood fill the bottom 34% of the frame. Left in, the

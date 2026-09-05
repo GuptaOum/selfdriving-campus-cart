@@ -59,3 +59,40 @@ python scripts/mask_and_plan_demo.py --image frame.png --profile road \
 set at runtime. The shipped export is the **footpath** profile (sidewalk,
 crosswalk, cyclinglane), which is correct for campus and would return a nearly
 empty mask on a road.
+
+
+# Panoptic segmentation + tracking clip
+
+![panoptic](panoptic_demo.gif)
+
+`panoptic_demo.gif` — 7 s excerpt of a 900-frame run over 30 s of public dashcam
+footage (1080p30), produced with `facebook/mask2former-swin-large-cityscapes-panoptic`
+on a T4. Steering in the overlay still comes from `SegEngine.steer_from_mask`, so it
+is comparable with every other number in this directory.
+
+Palette is Cityscapes with one deliberate change: **road is recoloured light blue**
+rather than the dataset's purple, because purple road against navy vehicles is hard
+to read at a glance. Sidewalk pink, vehicles navy, people crimson are unchanged.
+
+Boxes are near vehicles only. A detection has to clear a mask-pixel floor, be at
+least 7% of the inferred band height, and sit below the horizon band before it
+enters the tracker. Distant parked cars stay segmented but unboxed — that clutter
+was generating most of the identity churn.
+
+## What this clip is NOT
+
+- **Not the on-car model.** ~215M parameters, ~7 FPS on a T4 GPU. The Pi runs a
+  ~3.8M parameter SegFormer-B0 at INT8. This is the offline reference.
+- **Not calibrated distance.** No homography, no bird's-eye panel, no metres.
+- **Not a solved tracker.** SORT with a constant-velocity Kalman filter cut unique
+  ids from 665 to 166 over 900 frames, but a 30 s clip should yield far fewer than
+  166 distinct vehicles. Cars entering and leaving frame at the edges still
+  fragment. Appearance-based re-identification is the next lever, not tuning.
+
+## The result that matters
+
+Mean steering held between **-0.195 and -0.250** across semantic, panoptic, and
+panoptic-with-tracking. Three perception setups, one number. Cityscapes `road`
+covers the whole carriageway plus the parking apron, so the corridor is far wider
+than the ego lane and the band centroid lands off-lane. A better mask did not fix
+it, because it was never a mask problem.
