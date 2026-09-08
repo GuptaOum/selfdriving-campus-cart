@@ -96,3 +96,16 @@ panoptic-with-tracking. Three perception setups, one number. Cityscapes `road`
 covers the whole carriageway plus the parking apron, so the corridor is far wider
 than the ego lane and the band centroid lands off-lane. A better mask did not fix
 it, because it was never a mask problem.
+
+# Campus Video Results
+
+Side-by-side comparison of the raw video, Mask2Former panoptic segmentation (clean), and the binary drivable mask used for path planning.
+
+### Raw Video (Trimmed)
+![Raw Video](frame_rgb.jpg)
+
+### Panoptic Segmentation (Clean)
+![Panoptic Overlay](frame_panoptic.jpg)
+
+### Binary Drivable Mask
+![Binary Mask](frame_bw.jpg)
