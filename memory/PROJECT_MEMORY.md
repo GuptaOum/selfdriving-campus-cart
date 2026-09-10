@@ -188,14 +188,60 @@ python tests/test_safety.py
 
 ## 10. Key File Index
 
-- [`PROJECT_MEMORY.md`](file:///d:/selfdriving/PROJECT_MEMORY.md) — This document (Unified Project Memory).
+---
+
+## 11. Perception Model Fine-Tuning & Hardware Benchmarking (Fast-SCNN INT8)
+
+### Transfer Learning Protocol & Pseudo-Labeling
+- **Dataset Generation (`scripts/prepare_m2f_dataset.py`):** Used pretrained Mask2Former on EC2 GPU (`selfdriving-seg-lab`, `i-01127ed4e3d46b15e`) to extract ground-truth masks for `selfDRIVING_cropped.mp4` (1,302 frames, 300px bottom crop, 550px height).
+- **Fine-Tuning (`scripts/train_fastscnn.py`):** Initialized from `fastscnn_campus_m2f_best.pth`. Early-stopped at epoch 100 with validation IoU **0.9782**.
+- **Quantization (`scripts/export_fastscnn.py`):** Exported to dynamic INT8 ONNX (`fastscnn_selfdriving_int8.onnx`, 1.7 MB, input 256×256).
+- **Catastrophic Forgetting Gate:** Verified on original campus sample (`campussample_trimmed.mp4` & `campussample_middle.mp4`): maintained **0% false emergency stop rate** across all 2,000+ benchmark frames.
+
+### Settled Steering ROI Height (`roi_top = 0.30`)
+- Evaluated empirical lookahead boundaries:
+  - `0.40`: Original default (too near-field, delayed reaction to sharp turns).
+  - `0.25`: Too high (over-sensitive to horizon and distant background clutter).
+  - **`roi_top = 0.30` (Locked Decision):** Perfect compromise; anticipates turns smoothly while staying focused on immediate drivable road. Configured in [`mycar/parts/seg_pilot.py`](file:///d:/selfdriving/mycar/parts/seg_pilot.py).
+
+### Raspberry Pi 4 (2GB) Hardware Benchmark (64-Bit OS)
+- **OS Architecture Decision:** Upgraded from 32-bit `armhf` to **pure 64-bit Debian Bookworm (`aarch64`)**. Pi 4 boots natively from 64GB USB 3.0 drive; desktop display manager disabled (`multi-user.target`) for headless efficiency.
+- **Bare-Metal Telemetry (`pie/stats.py` on 751 frames, 4 CPU threads):**
+  - **Average Throughput:** **7.11 – 7.18 FPS** (Average latency: **136.6 ms / frame**).
+  - **Temporal Consistency (Jitter):** 95th-percentile (p95) latency **144.9 ms** ($\pm 8\text{ ms}$ variance across whole run).
+  - **Memory Footprint:** **110.6 MB RSS** (only 5.5% of the 2,000 MB RAM budget; leaves $>1.88\text{ GB}$ free).
+  - **Thermal Performance:** Peaked at 76.0 °C under sustained 100% 4-core CPU load without thermal throttling.
+  - **Vehicle Reaction Distance:** At 10 km/h (~2.8 m/s), path updates every **0.38 m (1.2 ft)**.
+
+### Remote Access & Field Telemetry Infrastructure
+- **Local mDNS:** `ssh oum@oum.local` connects across direct Ethernet cable or local Wi-Fi without knowing IP address.
+- **Global Mesh (Tailscale):** Static permanent IP **`100.80.56.92`** (`tailscale0`). Connects securely across mobile hotspot, college Wi-Fi, or remote networks with zero port forwarding.
+- **Collaborator Access:** Configured via Tailscale Node Sharing (inviting external accounts without sharing credentials).
+
+---
+
+## 12. Key File Index
+
+- [`PROJECT_MEMORY.md`](file:///d:/selfdriving/memory/PROJECT_MEMORY.md) — This document (Unified Project Memory).
 - [`README.md`](file:///d:/selfdriving/README.md) — Public-facing architecture and quickstart guide.
 - [`AUTONOMY.md`](file:///d:/selfdriving/AUTONOMY.md) — Comprehensive guide to Phase 2 campus autonomy.
 - [`BUILD_STAGES.md`](file:///d:/selfdriving/BUILD_STAGES.md) — Physical build, electrical wiring gates, and bring-up stages.
 - [`mycar/myconfig.py`](file:///d:/selfdriving/mycar/myconfig.py) — Vehicle configuration overrides and autonomy flags.
 - [`mycar/manage.py`](file:///d:/selfdriving/mycar/manage.py) — DonkeyCar main drive loop + campus autonomy injector.
-- [`mycar/parts/`](file:///d:/selfdriving/mycar/parts/) — Autonomy modules (`seg_pilot`, `yolo_guard`, `ultrasonic`, `safety_arbiter`, `gps_nav`).
-- [`scripts/export_models.py`](file:///d:/selfdriving/scripts/export_models.py) — ONNX INT8 and NCNN model quantization for Pi.
+- [`mycar/parts/seg_pilot.py`](file:///d:/selfdriving/mycar/parts/seg_pilot.py) — Semantic segmentation steering pilot (`roi_top = 0.30`).
+- [`scripts/train_fastscnn.py`](file:///d:/selfdriving/scripts/train_fastscnn.py) — Fast-SCNN PyTorch training & transfer learning.
+- [`scripts/export_fastscnn.py`](file:///d:/selfdriving/scripts/export_fastscnn.py) — Fast-SCNN ONNX FP32 & INT8 quantizer.
+- [`scripts/prepare_m2f_dataset.py`](file:///d:/selfdriving/scripts/prepare_m2f_dataset.py) — Mask2Former auto-segmentation labeler for videos.
 - [`scripts/vision_bench.py`](file:///d:/selfdriving/scripts/vision_bench.py) — Offline vision benchmark tool on recorded clips.
+- [`scripts/fastscnn_bw_mask.py`](file:///d:/selfdriving/scripts/fastscnn_bw_mask.py) — Binary black & white drivable mask generator.
+- [`scripts/stitch.py`](file:///d:/selfdriving/scripts/stitch.py) / [`stitch_campus.py`](file:///d:/selfdriving/scripts/stitch_campus.py) — Split-screen Before/After evaluation tools.
+- [`pie/`](file:///d:/selfdriving/pie/) — Self-contained Raspberry Pi deployment directory:
+  - `test_pi.py` — Quick throughput/FPS verification.
+  - `stats.py` — Full telemetry reporting suite (FPS, p95 latency, thermals, RAM).
+  - `segment_video.py` — Video generator with transparent green road overlay.
+  - `bw_mask.py` — Binary black & white mask generator.
+  - `fastscnn_selfdriving_int8.onnx` — Production fine-tuned INT8 model (1.7 MB).
+  - `fastscnn_labels.json` — Label mapping and metadata.
+  - `seg_pilot.py` — Synchronized DonkeyCar steering logic.
 - [`tests/test_safety.py`](file:///d:/selfdriving/tests/test_safety.py) — Offline unit & safety assertion tests.
 
