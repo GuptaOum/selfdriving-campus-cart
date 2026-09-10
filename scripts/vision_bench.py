@@ -111,7 +111,7 @@ def draw_bev(planner, grid, scores, best, moving, height):
 
 
 def annotate(frame, mask, debug, angle, throttle, clear, breaker, seg_fps,
-             tracks, source, clear_m, crop_bottom=0.0):
+             tracks, source, clear_m, crop_bottom=0.0, roi_top=0.4):
     h, w = frame.shape[:2]
     # The mask only covers what the model was shown: everything ABOVE the
     # --crop-bottom line. Stretching it over the full height draws the
@@ -124,7 +124,7 @@ def annotate(frame, mask, debug, angle, throttle, clear, breaker, seg_fps,
     overlay[:keep][mask_up > 0] = (90, 220, 120)
     out = cv2.addWeighted(frame, 0.66, overlay, 0.34, 0)
 
-    roi = int(keep * 0.4)
+    roi = int(keep * roi_top)
     band_h = (keep - roi) // 5
     cv2.line(out, (0, roi), (w, roi), (255, 210, 60), 1)
     if keep < h:
@@ -195,10 +195,12 @@ def main():
                     help="expected cruising speed, m/s. Converts arc distance into "
                          "time so moving obstacles are checked at the moment we "
                          "would actually meet them.")
+    ap.add_argument("--roi-top", type=float, default=0.4,
+                    help="fraction of image height where the ROI starts")
     args = ap.parse_args()
 
     engine = SegEngine(args.seg_model, args.seg_labels,
-                       crop_bottom=args.crop_bottom)
+                       crop_bottom=args.crop_bottom, roi_top=args.roi_top)
     breaker_part = BreakerDetect()      # the part, so distance gating applies
 
     yolo = None
@@ -314,7 +316,7 @@ def main():
 
         out = annotate(frame, mask, debug, angle, throttle, clear, breaker,
                        1.0 / max(seg_times[-1], 1e-3), tracks, source, clear_m,
-                       crop_bottom=args.crop_bottom)
+                       crop_bottom=args.crop_bottom, roi_top=args.roi_top)
         if bev is not None:
             out = np.hstack([out, bev])
 

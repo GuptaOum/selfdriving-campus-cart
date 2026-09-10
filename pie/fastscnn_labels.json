@@ -1,0 +1,12 @@
+{
+  "id2label": {
+    "0": "void-ground",
+    "1": "flat-sidewalk"
+  },
+  "drivable_ids": [
+    1
+  ],
+  "input_size": 256,
+  "profile": "fastscnn_campus",
+  "trained": true
+}

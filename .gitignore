@@ -6,16 +6,24 @@ __pycache__/
 # DonkeyCar upstream copy (install via pip instead)
 donkeycar-main/
 
-# Training artifacts
+# Training artifacts and datasets
 mycar/models/
 mycar/logs/
 exported_models/
+training_data/
 
-# Recorded footage / campus map
+# Recorded footage / campus map / video files
 campus_graph.graphml
 annotated*.mp4
-
-# Misc
 *.mp4
 *.h5
 videos/
+pie/*.mp4
+pie/*.onnx
+demo_package/*.mp4
+demo_package/*.onnx
+
+# Disk images / executables
+*.img.xz
+*.exe
+imager_setup.exe

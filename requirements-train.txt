@@ -1,0 +1,9 @@
+# EC2 training dependencies for Fast-SCNN distillation.
+# Install on the selfdriving-seg-lab g4dn.xlarge instance:
+#
+#   pip install -r requirements-train.txt
+#
+torch
+numpy
+opencv-python-headless
+Pillow
