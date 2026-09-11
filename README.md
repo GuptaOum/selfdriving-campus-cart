@@ -93,20 +93,33 @@ FlySky Transmitter ──RF──▶ FlySky Receiver ──iBUS/UART──▶ Ra
 
 ---
 
-## Quick Start
+## Engineering Behind the Scenes
 
-```bash
-# Clone and install dependencies
-git clone https://github.com/GuptaOum/selfdriving-campus-cart.git
-cd selfdriving-campus-cart
-pip install -r requirements-train.txt
+### Why Vision, Not LiDAR or Lane Lines?
 
-# Run Fast-SCNN benchmark on the Pi
-cd pie
-python test_pi.py
-```
+Campus footpaths have no lane markings, no kerb reflectors, and no standardised width. Classical Hough-transform lane detection fails immediately. LiDAR solves geometry but costs more than the entire cart. Semantic segmentation is the only sensor modality that can distinguish "walkable concrete" from "grass border" from "brick planter" using a single \$15 camera module — and Fast-SCNN is small enough to run on the Pi's CPU without a GPU or accelerator.
 
-See [docs/AUTONOMY.md](docs/AUTONOMY.md) for full perception configuration and [memory/PROJECT_MEMORY.md](memory/PROJECT_MEMORY.md) for telemetry logs and calibration history.
+### The Calibration Decisions That Actually Mattered
+
+- **`roi_top = 0.30`** — the vertical fraction of the frame where steering evaluation begins. Too low (`0.40`) and the cart steers late into curves. Too high (`0.25`) and distant horizon clutter causes twitchy corrections. `0.30` was found empirically by running the offline benchmark (`scripts/vision_bench.py`) across the full campus video and comparing false-stop rates and steering smoothness.
+- **Bottom crop (300px)** — the cart's own handlebars appeared in the camera frame. The segmentation model's wide receptive field bled the `vehicle-car` label upward over the road, collapsing drivable area to 8% and steering the cart off-path. Cropping the bottom 16% of the frame (or tilting the camera) eliminated 100% of self-occlusion artifacts.
+- **9px morphological closing** — campus paths include brick pavers with grass joints, concrete grids, and dappled tree shadows. Without morphological post-processing, the segmentation mask fragments into dozens of tiny disconnected regions that the corridor planner rejects as too narrow. A 9px closing kernel bridges these gaps while preserving real path boundaries.
+- **PD gains (`kp=1.2, kd=0.3`)** — pure proportional control oscillates on straight paths. The derivative term damps heading corrections so the cart tracks the corridor centerline without weaving. These gains were tuned on physical hardware, not simulation.
+
+### How the Safety Stack Works
+
+The safety arbiter (`safety_arbiter.py`) is a deliberate, readable priority if-chain — not a learned policy. Priority order (highest first):
+
+1. **RC transmitter override** — FlySky Ch 5 instantly hands control back to the human operator, bypassing all autonomy.
+2. **HC-SR04 sonar hard stop** — ultrasonic reflex braking at < 30 cm, independent of vision processing latency.
+3. **Geofence violation** — no GPS fix or position outside campus boundary polygon → fail-closed stop.
+4. **YOLO pedestrian detection** — person detected in the corridor → stop or throttle reduction.
+5. **Segmentation corridor blocked** — no drivable pixels found → stop.
+6. **Normal operation** — segmentation steering angle + cruise throttle.
+
+The arbiter is intentionally simple because this is the code a safety reviewer (or you at 2 AM after a crash) needs to audit at a glance.
+
+See [docs/AUTONOMY.md](docs/AUTONOMY.md) for full perception configuration and [memory/PROJECT_MEMORY.md](memory/PROJECT_MEMORY.md) for calibration history and telemetry logs.
 
 ## Acknowledgements
 
