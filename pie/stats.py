@@ -14,9 +14,16 @@ def get_cpu_temp():
         return None
 
 def main():
-    video_path = "campussample_trimmed.mp4"
-    onnx_path = "fastscnn_selfdriving_int8.onnx"
-    labels_path = "fastscnn_labels.json"
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--video", default="selfDRIVING_cropped.mp4", help="Video path")
+    ap.add_argument("--onnx", default="fastscnn_selfdriving_int8.onnx", help="ONNX model path")
+    ap.add_argument("--labels", default="fastscnn_labels.json", help="Labels JSON path")
+    args = ap.parse_args()
+
+    video_path = args.video
+    onnx_path = args.onnx
+    labels_path = args.labels
 
     print("=" * 55)
     print("      RASPBERRY PI 4 AUTONOMOUS VISION BENCHMARK      ")
