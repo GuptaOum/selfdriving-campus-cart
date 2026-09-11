@@ -16,14 +16,15 @@ parcels between buildings with nobody driving it.
 
 ---
 
-## Real-Time Edge Video Snippets
+## Edge Transfer Learning Comparison
 
 Generated directly on bare-metal **Raspberry Pi 4B running at ~7.5 FPS** (136.6 ms latency) — providing sufficient throughput for real-time edge obstacle avoidance and path planning.
 
-| Transfer Learning: Before vs After | Binary Drivable Mask (Planner Input) |
-|:---:|:---:|
-| <img src="docs/results/side_by_side_comparison.gif" width="340" alt="Pretrained vs Fine-tuned Fast-SCNN"/> | <img src="docs/results/bw_mask_output.gif" width="340" alt="Black and White Road Mask"/> |
-| *Fine-tuning eliminates road dropouts and edge bleeding* | *B&W road mask fed directly to geometric corridor planner ([📹 Full Video](docs/results/bw_mask_output.mp4))* |
+<p align="center">
+  <img src="docs/results/side_by_side_comparison.gif" width="600" alt="Pretrained vs Fine-tuned Fast-SCNN"/>
+  <br/>
+  <em><b>Pre-Trained (Left) vs Fine-Tuned (Right):</b> Domain-adapted Fast-SCNN eliminates road dropouts, suppresses background bleeding, and cleanly tracks path boundaries.</em>
+</p>
 
 > **Why 7.5 FPS is Real-Time:** At campus cart operating speeds of 8–10 km/h (~2.5 m/s), 7.5 FPS yields a new control decision every **33–38 cm** of travel. With a 4.0 m planning horizon, the vehicle reacts to path changes and obstacles with sub-second margins.
 
