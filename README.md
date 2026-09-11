@@ -23,22 +23,18 @@ Navigating narrow pedestrian walkways between campus buildings requires solving 
 The system splits autonomy into macro-routing and micro-corridor control:
 
 - **Fast-SCNN Semantic Segmentation (Micro):** An INT8-quantized Fast-SCNN model (~1.1M params) segments raw front-camera frames directly on the Raspberry Pi 4B CPU at **~7.5 FPS** (136.6 ms latency, 110 MB RAM), outputting a dense binary drivable road mask resistant to paver joints and tree shadows.
-- **Geometric Steering (NumPy & OpenCV):** OpenCV extracts spatial moments across 5 horizontal bands starting at `roi_top = 0.30` (calibrated lookahead). Vectorized NumPy slices compute lateral path error and heading angle ($\Delta x, \Delta \theta$), feeding a tuned PD controller (`kp=1.2, kd=0.3`) for smooth centering without lane hunting. A 9px morphological closing filter bridges paving grids into a single corridor.
+- **Geometric Steering (NumPy & OpenCV):** OpenCV extracts spatial moments across 5 horizontal bands starting at `roi_top = 0.30` (calibrated lookahead). Vectorized NumPy slices compute lateral path error and heading angle (Δx, Δθ), feeding a tuned PD controller (`kp=1.2, kd=0.3`) for smooth centering without lane hunting. A 9px morphological closing filter bridges paving grids into a single corridor.
 - **GPS Waypoints & Junction Bias (Macro):** `gps_nav.py` follows an OSMnx campus graph between buildings. At pathway forks and intersections, GPS injects a directional bias (`junction_bias`), pulling the vision corridor aim point toward the intended branch. A fail-closed geofence halts the cart if GPS fix is lost or boundaries are crossed.
 
 ---
 
 ## Edge Transfer Learning Comparison
 
-Generated directly on bare-metal **Raspberry Pi 4B running at ~7.5 FPS** (136.6 ms latency) — providing sufficient throughput for real-time edge obstacle avoidance and path planning.
-
 <p align="center">
   <img src="docs/results/side_by_side_comparison.gif" width="600" alt="Pretrained vs Fine-tuned Fast-SCNN"/>
   <br/>
-  <em><b>Pre-Trained (Left) vs Fine-Tuned (Right):</b> Domain-adapted Fast-SCNN eliminates road dropouts, suppresses background bleeding, and cleanly tracks path boundaries.</em>
+  <em><b>Pre-Trained (Left) vs Fine-Tuned (Right):</b> Domain-adapted Fast-SCNN eliminates road dropouts, suppresses background bleeding, and cleanly tracks path boundaries. At 8–10 km/h the cart gets a new steering decision every 33–38 cm of travel.</em>
 </p>
-
-> **Why 7.5 FPS is Real-Time:** At campus cart operating speeds of 8–10 km/h (~2.5 m/s), 7.5 FPS yields a new control decision every **33–38 cm** of travel. With a 4.0 m planning horizon, the vehicle reacts to path changes and obstacles with sub-second margins.
 
 ---
 
