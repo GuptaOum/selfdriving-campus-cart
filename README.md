@@ -20,10 +20,10 @@ parcels between buildings with nobody driving it.
 
 Navigating narrow pedestrian walkways between campus buildings requires solving a classic robotics challenge: **civilian GPS alone cannot steer a 30 cm cart on a 1.5 m footpath (civilian GPS has a 3–5 m error margin).**
 
-The system splits autonomy into macro-routing and micro-corridor control:
+The system achieves autonomy by combining macro-routing with a dynamic micro-corridor path planner:
 
-- **Fast-SCNN Semantic Segmentation (Micro):** An INT8-quantized Fast-SCNN model (~1.1M params) segments raw front-camera frames directly on the Raspberry Pi 4B CPU at **~7.5 FPS** (136.6 ms latency, 110 MB RAM), outputting a dense binary drivable road mask resistant to paver joints and tree shadows.
-- **Geometric Steering (NumPy & OpenCV):** OpenCV extracts spatial moments across 5 horizontal bands starting at `roi_top = 0.30` (calibrated lookahead). Vectorized NumPy slices compute lateral path error and heading angle (Δx, Δθ), feeding a tuned PD controller (`kp=1.2, kd=0.3`) for smooth centering without lane hunting. A 9px morphological closing filter bridges paving grids into a single corridor.
+- **Dynamic Vision-Based Path Planning (Micro):** For every single camera frame, we first segment the drivable portion of the road while actively masking out non-navigable areas and obstacles like pedestrians or parked cars. We use our own custom-trained Fast-SCNN model—fine-tuned specifically on campus data because it yields vastly superior results to off-the-shelf models—running directly on the Raspberry Pi 4B CPU.
+- **Geometric Steering (NumPy & OpenCV):** From that clean road mask, OpenCV and NumPy immediately calculate the nominal safe path to follow for that exact frame. By extracting spatial moments across horizontal bands, we find the path's center of mass to compute lateral error and heading angle (Δx, Δθ). Repeating this calculation continuously (~7.5 FPS) creates a **dynamic path planner** that actively adapts the cart's trajectory to the changing real-time environment.
 - **GPS Waypoints & Junction Bias (Macro):** `gps_nav.py` follows an OSMnx campus graph between buildings. At pathway forks and intersections, GPS injects a directional bias (`junction_bias`), pulling the vision corridor aim point toward the intended branch. A fail-closed geofence halts the cart if GPS fix is lost or boundaries are crossed.
 
 ---
