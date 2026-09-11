@@ -16,6 +16,60 @@ parcels between buildings with nobody driving it.
 
 ---
 
+## 🧠 How the Autonomous Campus Delivery Pipeline Works
+
+Navigating narrow pedestrian walkways between campus buildings requires solving a classic robotics challenge: **civilian GPS alone cannot steer a 30 cm cart on a 1.5 m footpath (GPS has a 3–5 m error margin).**
+
+This system solves campus autonomy through a **hierarchical Macro-to-Micro perception and navigation architecture**:
+
+```
+ ┌────────────────────────────────────────────────────────┐
+ │ 1. GLOBAL NAVIGATION (GPS & Campus Topological Graph)  │
+ │    • NEO-M8N GPS tracks building-to-building routes    │
+ │    • Emits junction intent (LEFT / STRAIGHT / RIGHT)   │
+ │    • Enforces campus boundary geofence                 │
+ └─────────────────────────┬──────────────────────────────┘
+                           │ Route Junction Intent
+                           ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 2. EDGE NEURAL PERCEPTION (Fast-SCNN INT8 @ ~7.5 FPS)  │
+ │    • Front camera frames segmented in real time        │
+ │    • INT8 ONNX (1.7 MB) on Raspberry Pi 4B CPU         │
+ │    • Outputs dense binary drivable road mask (B&W)     │
+ └─────────────────────────┬──────────────────────────────┘
+                           │ Binary Drivable Mask
+                           ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 3. GEOMETRIC CORRIDOR STEERING (NumPy & OpenCV)        │
+ │    • Morphological filtering bridges dappled shade/grid│
+ │    • Multi-band horizontal slicing (roi_top = 0.30)    │
+ │    • Centroid path tracing + PD heading angle control  │
+ └─────────────────────────┬──────────────────────────────┘
+                           │ Steering & Throttle Demand
+                           ▼
+ ┌────────────────────────────────────────────────────────┐
+ │ 4. SAFETY ARBITER & ACTUATION (PCA9685 Hardware)       │
+ │    • Priority failsafe: Sonar reflex (HC-SR04) + YOLO  │
+ │    • I2C PWM driver controls Steering Servo & Motor ESC│
+ └────────────────────────────────────────────────────────┘
+```
+
+### 1. Edge Neural Perception: Fast-SCNN Semantic Segmentation
+- **Real-Time on Low-Power ARM:** While heavy foundation models require power-hungry GPUs, our distilled Fast-SCNN INT8 model runs directly on the Raspberry Pi 4B CPU at **~7.5 FPS** (136.6 ms latency) consuming just **110 MB RAM**.
+- **Dense Drivable Mask:** Classifies every pixel into drivable surface vs grass/curb/background, handling complex real-world campus conditions like dappled tree shadows, worn asphalt, brick pavers, and unlined walkways.
+
+### 2. Reactive Steering: Vectorized NumPy & OpenCV
+- **Lookahead Corridor Centroids:** OpenCV extracts spatial moments across 5 horizontal bands starting at `roi_top = 0.30` (calibrated sweet spot preventing curve lag).
+- **Proportional-Derivative (PD) Control:** Vectorized NumPy slices compute lateral path deviation and heading error ($\Delta x, \Delta \theta$), feeding a tuned PD controller (`kp=1.2, kd=0.3`) for smooth centering without lane oscillations.
+- **Morphological Gap-Closing:** A 9px morphological closing kernel (`cv2.morphologyEx`) bridges paver block joints and dappled sun glare so the path is tracked as one unified drivable corridor.
+
+### 3. Global Navigation: GPS Waypoints & Junction Decision Engine
+- **Building-to-Building Route Planning (`gps_nav.py`):** An OSMnx topological graph of campus pathways guides the vehicle along designated delivery corridors.
+- **Macro ↔ Micro Fusion:** At pathway forks and intersections, the GPS navigation engine injects a directional bias (`junction_bias`), guiding the local vision corridor aim point toward the intended branch.
+- **Fail-Closed Geofencing:** If GPS fix is lost, stale, or crosses geofenced campus boundaries, the vehicle safely halts.
+
+---
+
 ## Edge Transfer Learning Comparison
 
 Generated directly on bare-metal **Raspberry Pi 4B running at ~7.5 FPS** (136.6 ms latency) — providing sufficient throughput for real-time edge obstacle avoidance and path planning.
