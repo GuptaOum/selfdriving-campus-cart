@@ -8,9 +8,10 @@ parcels between buildings with nobody driving it.
 > end-to-end on cheap hardware before scaling it up.
 
 <p align="center">
-  <img src="docs/results/fastscnn_campus_demo.gif" alt="Fast-SCNN campus road segmentation demo" width="680"/>
+  <img src="docs/results/fastscnn_campus_demo.gif" width="48%" alt="Live Campus Segmentation"/>
+  <img src="docs/results/bw_mask_output.gif" width="48%" alt="Real-Time B&W Road Mask"/>
   <br/>
-  <em><b>Live Campus Navigation:</b> Fast-SCNN (INT8 quantized, 1.7 MB) predicting drivable corridor boundaries and steering angles in real time on a Raspberry Pi 4B (roi_top = 0.30).</em>
+  <em><b>Dual-View Real-Time Edge Inference (~7.5 FPS on Raspberry Pi 4B):</b> Left: Camera view with Fast-SCNN drivable corridor overlay. Right: Extracted Black & White binary road mask (<a href="docs/results/bw_mask_output.mp4"><b>bw_mask_output.mp4</b></a>) fed into the geometric planner.</em>
 </p>
 
 ---
@@ -22,7 +23,7 @@ Generated directly on bare-metal **Raspberry Pi 4B running at ~7.5 FPS** (136.6 
 | Transfer Learning: Before vs After | Binary Drivable Mask (Planner Input) |
 |:---:|:---:|
 | <img src="docs/results/side_by_side_comparison.gif" width="340" alt="Pretrained vs Fine-tuned Fast-SCNN"/> | <img src="docs/results/bw_mask_output.gif" width="340" alt="Black and White Road Mask"/> |
-| *Fine-tuning eliminates road dropouts and edge bleeding* | *B&W road mask fed directly to geometric corridor planner* |
+| *Fine-tuning eliminates road dropouts and edge bleeding* | *B&W road mask fed directly to geometric corridor planner ([📹 Full Video](docs/results/bw_mask_output.mp4))* |
 
 > **Why 7.5 FPS is Real-Time:** At campus cart operating speeds of 8–10 km/h (~2.5 m/s), 7.5 FPS yields a new control decision every **33–38 cm** of travel. With a 4.0 m planning horizon, the vehicle reacts to path changes and obstacles with sub-second margins.
 

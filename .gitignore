@@ -16,6 +16,7 @@ training_data/
 campus_graph.graphml
 annotated*.mp4
 *.mp4
+!docs/results/*.mp4
 *.h5
 videos/
 pie/*.mp4
