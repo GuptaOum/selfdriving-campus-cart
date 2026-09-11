@@ -7,6 +7,12 @@ parcels between buildings with nobody driving it.
 > **This is a prototype.** The point of this stage is to prove self-driving works
 > end-to-end on cheap hardware before scaling it up.
 
+<p align="center">
+  <img src="docs/results/fastscnn_campus_demo.gif" alt="Fast-SCNN campus road segmentation demo" width="600"/>
+  <br/>
+  <em>Real-time Fast-SCNN (INT8 quantized, 1.7 MB) predicting drivable road boundaries and steering corridor at 7.11 FPS on campus test footage (roi_top = 0.30).</em>
+</p>
+
 ## The three modes
 
 The repo holds three separate ways of making the car see and steer. They do not
@@ -60,11 +66,7 @@ A lightweight edge semantic segmentation network labels every pixel in real time
 
 ### Mode 3 — Mask2Former Cloud Teacher & Knowledge Distillation
 
-![Fast-SCNN semantic road segmentation on campus footage](docs/results/fastscnn_campus_demo.gif)
-
-*Fast-SCNN (INT8 quantized, 1.7 MB) predicting drivable road boundaries in real time on recorded campus footage at `roi_top = 0.30`.*
-
-A heavy 215M-parameter foundation model (Mask2Former Swin-L) is far too slow for embedded edge hardware (~7 FPS on an enterprise T4 GPU). However, it serves as the **offline teacher model** in our knowledge distillation and transfer learning pipeline.
+A heavy 215M-parameter foundation model (Mask2Former Swin-L) is far too slow for embedded edge hardware (~7 FPS on an enterprise T4 GPU). However, it serves as the **offline teacher model** in our knowledge distillation and transfer learning pipeline to generate dense ground-truth training masks automatically from raw campus video.
 
 ---
 
