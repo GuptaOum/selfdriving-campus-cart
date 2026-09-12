@@ -26,6 +26,23 @@ The system achieves autonomy by combining macro-routing with a dynamic micro-cor
 - **Geometric Steering (NumPy & OpenCV):** From that clean road mask, OpenCV and NumPy immediately calculate the nominal safe path to follow for that exact frame. By extracting spatial moments across horizontal bands, we find the path's center of mass to compute lateral error and heading angle (Δx, Δθ). Repeating this calculation continuously (~7.5 FPS) creates a **dynamic path planner** that actively adapts the cart's trajectory to the changing real-time environment.
 - **GPS Waypoints & Junction Bias (Macro):** `gps_nav.py` follows an OSMnx campus graph between buildings. At pathway forks and intersections, GPS injects a directional bias (`junction_bias`), pulling the vision corridor aim point toward the intended branch. A fail-closed geofence halts the cart if GPS fix is lost or boundaries are crossed.
 
+---
+
+## Real-Time Steering Logic & Future Upgrades
+
+<p align="center">
+  <img src="docs/results/vision_bench_steering.gif" width="600" alt="Vision Bench Steering Logic"/>
+</p>
+
+### How the Steering is Calculated
+The steering angle is calculated dynamically from the segmented drivable corridor. OpenCV and NumPy extract the spatial moments across horizontal bands of the binary road mask to find the path's center of mass. This center of mass gives us the lateral error (Δx) and the heading angle (Δθ) relative to the vehicle's current position, allowing the geometric planner to generate smooth, continuous steering corrections (~7.5 FPS) that keep the vehicle centered on the path.
+
+### Upgrade Roadmap
+Currently, we are filming and testing the system on a fast-moving, bumpy vehicle. However, several upgrades are planned to refine the autonomy stack:
+- **Bot-Level View & Speed:** Transitioning the hardware to a slower, dedicated delivery bot platform. This lower speed and more stable "bot view" will drastically reduce motion blur and reaction-time constraints.
+- **Enhanced Perception:** Upgrading to a better camera sensor and deploying a more rigorously fine-tuned model for even sharper corridor segmentation.
+- **Advanced Filtering:** Implementing Kalman filters (and other smoothing algorithms) on the steering output. This will filter out high-frequency noise and mechanical jitter, creating incredibly smooth and predictable steering angles.
+
 
 
 
