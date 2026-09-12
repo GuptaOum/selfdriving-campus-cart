@@ -8,8 +8,7 @@ parcels between buildings with nobody driving it.
 > end-to-end on cheap hardware before scaling it up.
 
 <p align="center">
-  <video src="pi_segmented_output.mp4#t=5" width="48%" autoplay loop muted playsinline></video>
-  <video src="bw_mask_output.mp4#t=5" width="48%" autoplay loop muted playsinline></video>
+  <video src="docs/results/conjoined_campus.mp4" width="100%" autoplay loop muted playsinline></video>
   <br/>
   <em><b>Dual-View Real-Time Edge Inference (~7.5 FPS on Raspberry Pi 4B):</b> Left: Camera view with Fast-SCNN drivable corridor overlay. Right: Extracted Black & White binary road mask (<a href="bw_mask_output.mp4"><b>bw_mask_output.mp4</b></a>) fed into the geometric planner.</em>
 </p>
