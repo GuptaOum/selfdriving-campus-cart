@@ -8,7 +8,8 @@ parcels between buildings with nobody driving it.
 > end-to-end on cheap hardware before scaling it up.
 
 <p align="center">
-  <video src="docs/results/conjoined_campus.mp4" width="100%" autoplay loop muted playsinline></video>
+  <img src="docs/results/fastscnn_campus_demo.gif" width="48%" alt="Live Campus Segmentation"/>
+  <video src="docs/results/conjoined_campus.mp4" width="48%" autoplay loop muted playsinline></video>
   <br/>
   <em><b>Dual-View Real-Time Edge Inference (~7.5 FPS on Raspberry Pi 4B):</b> Left: Camera view with Fast-SCNN drivable corridor overlay. Right: Extracted Black & White binary road mask (<a href="bw_mask_output.mp4"><b>bw_mask_output.mp4</b></a>) fed into the geometric planner.</em>
 </p>
@@ -24,6 +25,16 @@ The system achieves autonomy by combining macro-routing with a dynamic micro-cor
 - **Dynamic Vision-Based Path Planning (Micro):** For every single camera frame, we first segment the drivable portion of the road while actively masking out non-navigable areas and obstacles like pedestrians or parked cars. We use our own custom-trained Fast-SCNN model—fine-tuned specifically on campus data because it yields vastly superior results to off-the-shelf models—running directly on the Raspberry Pi 4B CPU.
 - **Geometric Steering (NumPy & OpenCV):** From that clean road mask, OpenCV and NumPy immediately calculate the nominal safe path to follow for that exact frame. By extracting spatial moments across horizontal bands, we find the path's center of mass to compute lateral error and heading angle (Δx, Δθ). Repeating this calculation continuously (~7.5 FPS) creates a **dynamic path planner** that actively adapts the cart's trajectory to the changing real-time environment.
 - **GPS Waypoints & Junction Bias (Macro):** `gps_nav.py` follows an OSMnx campus graph between buildings. At pathway forks and intersections, GPS injects a directional bias (`junction_bias`), pulling the vision corridor aim point toward the intended branch. A fail-closed geofence halts the cart if GPS fix is lost or boundaries are crossed.
+
+---
+
+## Edge Transfer Learning Comparison
+
+<p align="center">
+  <img src="docs/results/side_by_side_comparison.gif" width="600" alt="Pretrained vs Fine-tuned Fast-SCNN"/>
+  <br/>
+  <em><b>Pre-Trained (Left) vs Fine-Tuned (Right):</b> Domain-adapted Fast-SCNN eliminates road dropouts, suppresses background bleeding, and cleanly tracks path boundaries. At 8–10 km/h the cart gets a new steering decision every 33–38 cm of travel.</em>
+</p>
 
 
 
