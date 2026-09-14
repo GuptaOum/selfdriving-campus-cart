@@ -35,7 +35,7 @@ The system achieves autonomy by combining macro-routing with a dynamic micro-cor
 </p>
 
 ### How the Steering is Calculated
-The steering angle is dynamically calculated using OpenCV to find the center of mass of the binary road mask. Currently, the system aims for the exact middle of the mask, which coincidentally keeps the cart tracking over the road's dashed center line. In future "bot view" updates, we will adjust this to steer specifically within a single lane—aiming for the midpoint between the road edge and the dashed center line.
+The steering angle is dynamically calculated using OpenCV & Numpy to find the center of mass of the binary road mask. Currently, the system aims for the exact middle of the mask, which coincidentally keeps the cart tracking over the road's dashed center line. In future "bot view" updates, we will adjust this to steer specifically within a single lane—aiming for the midpoint between the road edge and the dashed center line.
 
 ### Upgrade Roadmap
 Currently, we are filming and testing the system on a fast-moving, bumpy vehicle. However, several upgrades are planned to refine the autonomy stack:
