@@ -184,9 +184,27 @@ python tests/test_safety.py
 ```
 *`test_safety.py` must print `ALL PASS`.*
 
----
+## 10. Next-Generation Architecture Roadmap (Steering & Stability)
 
-## 10. Key File Index
+To resolve high-frequency camera vibration, perspective distortion, and steering micro-jitter on physical hardware, the following pipeline has been established for the next iteration:
+
+### 1. Extrinsic Calibration: Inverse Perspective Mapping (IPM)
+- **Problem:** Normal perspective cameras make distant roads narrow, skewing the Center of Mass calculation toward the immediate front wheels and reacting too late to distant curves.
+- **Solution:** A known rectangular box (e.g., 100cm x 50cm) is taped on the ground. A single frame is used with `cv2.getPerspectiveTransform` to calculate a Bird's Eye View (BEV) matrix.
+- **Pipeline Rule:** Run the segmentation model (Fast-SCNN) on the **raw perspective image**. *Then* apply `cv2.warpPerspective` **only** to the resulting binary mask to flatten it into BEV.
+- **Result:** In the flattened mask, 1 pixel = 1 cm everywhere. Center of Mass yields true physical Lateral Error ($\Delta x$).
+
+### 2. Intrinsic Calibration
+- **Problem:** Cheap USB webcams (Logitech C270/C310) exhibit barrel ("fish-eye") distortion.
+- **Solution:** Use an OpenCV checkerboard routine to undistort the raw frames *before* passing them to the neural network or applying IPM.
+
+### 3. Mechanical & IMU Stabilization
+- **High-Frequency Vibration:** Logitech webcams have natural weight (acting as a mass damper) but still suffer from CMOS rolling shutter "jello" over asphalt. **Solution:** Mount the camera on a physical dampener (soft foam, silicone tape, or rubber drone bobbins).
+- **Chassis Pitch/Roll:** **MPU6050 IMU** reads actual vehicle tilt from bumps and actively shifts the image Region of Interest (ROI) *before* neural network inference at zero CPU cost (Electronic Image Stabilization).
+
+### 4. Software Steering Filters
+- **Exponential Moving Average (EMA) or 1D Kalman Filter:** Applied to the calculated steering angle ($\Delta\theta$) to mathematically reject noise and sudden spikes.
+- **Steering Deadband:** If the calculated change in $\Delta\theta$ is $<2^\circ$, no update is sent to the PCA9685. Prevents continuous servo buzzing/hunting on straightaways.
 
 ---
 
